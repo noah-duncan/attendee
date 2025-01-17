@@ -485,300 +485,6 @@ class RTCInterceptor {
     }
 }
 
-// Protobuf decoders
-class CollectionMessage {
-    constructor() {
-      this.body = null; // Contains CollectionMessageBody
-    }
-  
-    // Decodes a CollectionMessage from a Uint8Array of protobuf bytes
-    static decode(reader, length) {
-      // If we don't have a proper reader, create one
-      if (!(reader instanceof protobuf.Reader)) {
-        reader = protobuf.Reader.create(reader);
-      }
-  
-      // Get the length of data to read
-      const end = length === undefined ? reader.len : reader.pos + length;
-      
-      // Create a new message instance
-      const message = new CollectionMessage();
-  
-      // Read fields until we reach the end
-      while (reader.pos < end) {
-        // Get the field number and wire type
-        const tag = reader.uint32();
-        
-        switch (tag >>> 3) { // Field number
-          case 1: // body field
-            message.body = CollectionMessageBody.decode(reader, reader.uint32());
-            break;
-          default:
-            reader.skipType(tag & 7); // Skip unknown fields
-        }
-      }
-  
-      return message;
-    }
-  }
-  
-  class CollectionMessageBody {
-    constructor() {
-      this.wrapper = null; // Contains Wrapper1
-    }
-  
-    static decode(reader, length) {
-      if (!(reader instanceof protobuf.Reader)) {
-        reader = protobuf.Reader.create(reader);
-      }
-  
-      const end = length === undefined ? reader.len : reader.pos + length;
-      const message = new CollectionMessageBody();
-  
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        
-        switch (tag >>> 3) {
-          case 2: // wrapper field
-            message.wrapper = Wrapper1.decode(reader, reader.uint32());
-            break;
-          default:
-            reader.skipType(tag & 7);
-        }
-      }
-  
-      return message;
-    }
-  }
-  
-  class Wrapper1 {
-    constructor() {
-      this.wrapper = null; // Contains Wrapper2
-    }
-  
-    static decode(reader, length) {
-      if (!(reader instanceof protobuf.Reader)) {
-        reader = protobuf.Reader.create(reader);
-      }
-  
-      const end = length === undefined ? reader.len : reader.pos + length;
-      const message = new Wrapper1();
-  
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        
-        switch (tag >>> 3) {
-          case 13: // wrapper field
-            message.wrapper = Wrapper2.decode(reader, reader.uint32());
-            break;
-          default:
-            reader.skipType(tag & 7);
-        }
-      }
-  
-      return message;
-    }
-  }
-  
-  class Wrapper2 {
-    constructor() {
-      this.wrapper = null; // Contains Wrapper3
-      this.chat = []; // Array of ChatWrapper
-    }
-  
-    static decode(reader, length) {
-      if (!(reader instanceof protobuf.Reader)) {
-        reader = protobuf.Reader.create(reader);
-      }
-  
-      const end = length === undefined ? reader.len : reader.pos + length;
-      const message = new Wrapper2();
-  
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        
-        switch (tag >>> 3) {
-          case 1: // wrapper field
-            message.wrapper = Wrapper3.decode(reader, reader.uint32());
-            break;
-          case 4: // chat field
-            if (!message.chat) {
-              message.chat = [];
-            }
-            message.chat.push(ChatWrapper.decode(reader, reader.uint32()));
-            break;
-          default:
-            reader.skipType(tag & 7);
-        }
-      }
-  
-      return message;
-    }
-  }
-  
-  class Wrapper3 {
-    constructor() {
-      this.userDetails = []; // Array of UserDetails
-    }
-  
-    static decode(reader, length) {
-      if (!(reader instanceof protobuf.Reader)) {
-        reader = protobuf.Reader.create(reader);
-      }
-  
-      const end = length === undefined ? reader.len : reader.pos + length;
-      const message = new Wrapper3();
-  
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        
-        switch (tag >>> 3) {
-          case 2: // userDetails field
-            if (!message.userDetails) {
-              message.userDetails = [];
-            }
-            message.userDetails.push(UserDetails.decode(reader, reader.uint32()));
-            break;
-          default:
-            reader.skipType(tag & 7);
-        }
-      }
-  
-      return message;
-    }
-  }
-
-class UserDetails {
-    constructor() {
-      this.deviceId = "";
-      this.fullName = "";
-      this.profile = "";
-      this.name = "";
-    }
-  
-    static decode(reader, length) {
-      if (!(reader instanceof protobuf.Reader)) {
-        reader = protobuf.Reader.create(reader);
-      }
-  
-      const end = length === undefined ? reader.len : reader.pos + length;
-      const message = new UserDetails();
-  
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        
-        switch (tag >>> 3) {
-          case 1:
-            message.deviceId = reader.string();
-            break;
-          case 2:
-            message.fullName = reader.string();
-            break;
-          case 3:
-            message.profile = reader.string();
-            break;
-          case 29:
-            message.name = reader.string();
-            break;
-          default:
-            reader.skipType(tag & 7);
-        }
-      }
-  
-      return message;
-    }
-  }
-
-class UserDetailsWrapper {
-    constructor() {
-        this.userDetails = []; // Array of UserDetails
-    }
-
-    static decode(reader, length) {
-        if (!(reader instanceof protobuf.Reader)) {
-            reader = protobuf.Reader.create(reader);
-        }
-
-        const end = length === undefined ? reader.len : reader.pos + length;
-        const message = new UserDetailsWrapper();
-
-        while (reader.pos < end) {
-            const tag = reader.uint32();
-            
-            switch (tag >>> 3) {
-                case 2: // userDetails field
-                    if (!message.userDetails) {
-                        message.userDetails = [];
-                    }
-                    message.userDetails.push(UserDetails.decode(reader, reader.uint32()));
-                    break;
-                default:
-                    reader.skipType(tag & 7);
-            }
-        }
-
-        return message;
-    }
-}
-
-class SpaceCollection {
-    constructor() {
-        this.wrapper = null; // Contains UserDetailsWrapper
-    }
-
-    static decode(reader, length) {
-        if (!(reader instanceof protobuf.Reader)) {
-            reader = protobuf.Reader.create(reader);
-        }
-
-        const end = length === undefined ? reader.len : reader.pos + length;
-        const message = new SpaceCollection();
-
-        while (reader.pos < end) {
-            const tag = reader.uint32();
-            
-            switch (tag >>> 3) {
-                case 2: // wrapper field
-                    message.wrapper = UserDetailsWrapper.decode(reader, reader.uint32());
-                    break;
-                default:
-                    reader.skipType(tag & 7);
-            }
-        }
-
-        return message;
-    }
-}
-
-class MeetingSpaceCollectionResponse {
-    constructor() {
-        this.spaces = null; // Contains SpaceCollection
-    }
-
-    static decode(reader, length) {
-        if (!(reader instanceof protobuf.Reader)) {
-            reader = protobuf.Reader.create(reader);
-        }
-
-        const end = length === undefined ? reader.len : reader.pos + length;
-        const message = new MeetingSpaceCollectionResponse();
-
-        while (reader.pos < end) {
-            const tag = reader.uint32();
-            
-            switch (tag >>> 3) {
-                case 2: // spaces field
-                    message.spaces = SpaceCollection.decode(reader, reader.uint32());
-                    break;
-                default:
-                    reader.skipType(tag & 7);
-            }
-        }
-
-        return message;
-    }
-}
-
 // Message type definitions
 const messageTypes = [
       {
@@ -804,7 +510,7 @@ const messageTypes = [
         name: 'UserInfoListWrapperAndChatWrapper',
         fields: [
             { name: 'userInfoListWrapper', fieldNumber: 1, type: 'message', messageType: 'UserInfoListWrapper' },
-            // { name: 'chat', fieldNumber: 4, type: 'message', messageType: 'ChatMessage', repeated: true }
+            { name: 'chatMessageWrapper', fieldNumber: 4, type: 'message', messageType: 'ChatMessageWrapper', repeated: true }
         ]
     },
     {
@@ -885,6 +591,27 @@ const messageTypes = [
             { name: 'version', fieldNumber: 3, type: 'int64' },
             { name: 'text', fieldNumber: 6, type: 'string' },
             { name: 'languageId', fieldNumber: 8, type: 'int64' }
+        ]
+    },
+    {
+        name: 'ChatMessageWrapper',
+        fields: [
+            { name: 'chatMessage', fieldNumber: 2, type: 'message', messageType: 'ChatMessage' }
+        ]
+    },
+    {
+        name: 'ChatMessage',
+        fields: [
+            { name: 'messageId', fieldNumber: 1, type: 'string' },
+            { name: 'deviceId', fieldNumber: 2, type: 'string' },
+            { name: 'timestamp', fieldNumber: 3, type: 'int64' },
+            { name: 'chatMessageContent', fieldNumber: 5, type: 'message', messageType: 'ChatMessageContent' }
+        ]
+    },
+    {
+        name: 'ChatMessageContent',
+        fields: [
+            { name: 'text', fieldNumber: 1, type: 'string' }
         ]
     }
 ];
@@ -991,6 +718,12 @@ const handleCollectionEvent = (event) => {
   if (deviceOutputInfoList) {
     userManager.updateDeviceOutputs(deviceOutputInfoList);
   }
+
+  const chatMessageWrapper = collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper?.userInfoListWrapperAndChatWrapper?.chatMessageWrapper;
+  if (chatMessageWrapper) {
+    console.log('chatMessageWrapper', chatMessageWrapper);
+  }
+
   //console.log('deviceOutputInfoList', JSON.stringify(collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper?.deviceInfoWrapper?.deviceOutputInfoList));
   //console.log('usermap', userMap.allUsersMap);
   //console.log('userInfoList And Event', collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper.userInfoListWrapperAndChatWrapper.userInfoListWrapper);
