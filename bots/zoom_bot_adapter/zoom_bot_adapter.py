@@ -454,7 +454,7 @@ class ZoomBotAdapter(BotAdapter):
         if self.retry_count < len(self.retry_wait_times_seconds):
             wait_seconds = self.retry_wait_times_seconds[self.retry_count]
             print(f"waiting for host, let's wait {wait_seconds} more seconds")
-            GLib.timeout_add_seconds(wait_seconds, self.retry_join_meeting)
+            GLib.timeout_add_seconds(wait_seconds, self.waiting_for_host)
             self.retry_count += 1
 
         else:
