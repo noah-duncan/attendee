@@ -1,0 +1,41 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    ingress.kubernetes.io/backends: '{"k8s1-2181b255-attendee-web-service-80-4bd006aa":"HEALTHY","k8s1-2181b255-kube-system-default-http-backend-80-cb70a5af":"HEALTHY"}'
+    ingress.kubernetes.io/forwarding-rule: k8s2-fr-hqun602z-attendee-web-ingress-898x5q0a
+    ingress.kubernetes.io/target-proxy: k8s2-tp-hqun602z-attendee-web-ingress-898x5q0a
+    ingress.kubernetes.io/url-map: k8s2-um-hqun602z-attendee-web-ingress-898x5q0a
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"networking.k8s.io/v1","kind":"Ingress","metadata":{"annotations":{"kubernetes.io/ingress.class":"gce","kubernetes.io/ingress.global-static-ip-name":"web-static-ip"},"labels":{"app.kubernetes.io/instance":"attendee-20250209031107","app.kubernetes.io/managed-by":"cuber","app.kubernetes.io/name":"attendee","app.kubernetes.io/version":"1e5d153-20250209031101"},"name":"web-ingress","namespace":"attendee"},"spec":{"rules":[{"http":{"paths":[{"backend":{"service":{"name":"web-service","port":{"number":80}}},"path":"/","pathType":"Prefix"}]}}]}}
+    kubernetes.io/ingress.class: gce
+    kubernetes.io/ingress.global-static-ip-name: web-static-ip
+  creationTimestamp: "2025-02-09T03:02:41Z"
+  finalizers:
+  - networking.gke.io/ingress-finalizer-V2
+  generation: 1
+  labels:
+    app.kubernetes.io/instance: attendee-20250209031107
+    app.kubernetes.io/managed-by: cuber
+    app.kubernetes.io/name: attendee
+    app.kubernetes.io/version: 1e5d153-20250209031101
+  name: web-ingress
+  namespace: attendee
+  resourceVersion: "111516"
+  uid: abd2c273-9d52-48b5-ae5c-10cb392d7cf6
+spec:
+  rules:
+  - host: staging.attendee.dev
+    http:
+      paths:
+      - backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+status:
+  loadBalancer:
+    ingress:
+    - ip: 34.160.141.27

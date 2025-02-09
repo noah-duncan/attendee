@@ -1,0 +1,9 @@
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: attendee-staging-cert
+  namespace: attendee
+spec:
+  domains:
+    - staging.attendee.dev
+

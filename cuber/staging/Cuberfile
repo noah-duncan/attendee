@@ -29,8 +29,8 @@ health 'http://web-service.attendee.svc.cluster.local/health'
 ingress true
 lb 'kubernetes.io/ingress.global-static-ip-name', 'web-static-ip'
 lb 'kubernetes.io/ingress.class', 'gce'
-#lb 'networking.gke.io/managed-certificates', 'attendee-cert-4'
-#lb 'kubernetes.io/ingress.allow-http', 'true'
+lb 'networking.gke.io/managed-certificates', 'attendee-staging-cert'
+lb 'kubernetes.io/ingress.allow-http', 'false'
 
 env 'DJANGO_SETTINGS_MODULE', 'attendee.settings.staging'
 env 'DJANGO_SECRET_KEY', google_cloud_secret('DJANGO_SECRET_KEY'), secret: true
