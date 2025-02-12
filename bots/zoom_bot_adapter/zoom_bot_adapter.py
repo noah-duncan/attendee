@@ -111,6 +111,9 @@ class ZoomBotAdapter(BotAdapter):
 
         self._participant_cache = {}
 
+        self.retry_count = 0
+        self.retry_wait_times_seconds  = [ 10, 20, 30, 40 ]
+
     def on_user_join_callback(self, joined_user_ids, _):
         print("on_user_join_callback called. joined_user_ids =", joined_user_ids)
         for joined_user_id in joined_user_ids:
@@ -463,12 +466,22 @@ class ZoomBotAdapter(BotAdapter):
 
         self.send_message_callback({'message': self.Messages.ZOOM_AUTHORIZATION_FAILED, 'zoom_result_code': result})
     
+    def waiting_for_host(self):
+        if self.retry_count < len(self.retry_wait_times_seconds):
+            wait_seconds = self.retry_wait_times_seconds[self.retry_count]
+            print(f"waiting for host, let's wait {wait_seconds} more seconds")
+            GLib.timeout_add_seconds(wait_seconds, self.waiting_for_host)
+            self.retry_count += 1
+
+        else:
+            self.send_message_callback({'message': self.Messages.LEAVE_MEETING_WAITING_FOR_HOST})
+
     def meeting_status_changed(self, status, iResult):
         print("meeting_status_changed called. status =",status,"iResult=",iResult)
 
         if status == zoom.MEETING_STATUS_WAITINGFORHOST:
-            self.send_message_callback({'message': self.Messages.LEAVE_MEETING_WAITING_FOR_HOST})
-
+            self.waiting_for_host()
+                
         if status == zoom.MEETING_STATUS_IN_WAITING_ROOM:
             self.send_message_callback({'message': self.Messages.BOT_PUT_IN_WAITING_ROOM})
 
