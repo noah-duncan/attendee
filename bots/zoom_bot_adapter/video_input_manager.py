@@ -125,10 +125,11 @@ def scale_i420(frame, new_size):
     ]).astype(np.uint8).tobytes()
 
 class VideoInputStream:
-    def __init__(self, video_input_manager, user_id, stream_type):
+    def __init__(self, video_input_manager, user_id, stream_type, share_source_id):
         self.video_input_manager = video_input_manager
         self.user_id = user_id
         self.stream_type = stream_type
+        self.share_source_id = share_source_id
         self.renderer_destroyed = False
         self.renderer_delegate = zoom.ZoomSDKRendererDelegateCallbacks(
             onRawDataFrameReceivedCallback=self.on_raw_video_frame_received_callback,
@@ -142,16 +143,20 @@ class VideoInputStream:
             VideoInputManager.StreamType.SCREENSHARE: zoom.ZoomSDKRawDataType.RAW_DATA_TYPE_SHARE,
             VideoInputManager.StreamType.VIDEO: zoom.ZoomSDKRawDataType.RAW_DATA_TYPE_VIDEO
         }[stream_type]
+
+        if stream_type == VideoInputManager.StreamType.SCREENSHARE:
+            subscribe_result = self.renderer.subscribe(self.share_source_id, raw_data_type)
+        else:
+            subscribe_result = self.renderer.subscribe(self.user_id, raw_data_type)
         
-        subscribe_result = self.renderer.subscribe(self.user_id, raw_data_type)
         self.raw_data_status = zoom.RawData_Off
 
         self.last_frame_time = time.time()
         self.black_frame_timer_id = GLib.timeout_add(250, self.send_black_frame)
 
         logger.info(f"In VideoInputStream.init self.renderer = {self.renderer}")
-        logger.info(f"In VideoInputStream.init set_resolution_result for user {self.user_id} is {set_resolution_result}")
-        logger.info(f"In VideoInputStream.init subscribe_result for user {self.user_id} is {subscribe_result}")
+        logger.info(f"In VideoInputStream.init set_resolution_result for user {self.user_id} and share source id {self.share_source_id} is {set_resolution_result}")
+        logger.info(f"In VideoInputStream.init subscribe_result for user {self.user_id} and share source id {self.share_source_id} is {subscribe_result}")
         self.last_debug_frame_time = None
 
     def on_raw_data_status_changed_callback(self, status):
@@ -179,9 +184,9 @@ class VideoInputStream:
             GLib.source_remove(self.black_frame_timer_id)
             self.black_frame_timer_id = None
 
-        logger.info(f"starting renderer unsubscription for user {self.user_id}")
+        logger.info(f"starting renderer unsubscription for user {self.user_id} and share source id {self.share_source_id}")
         self.renderer.unSubscribe()
-        logger.info(f"finished renderer unsubscription for user {self.user_id}")
+        logger.info(f"finished renderer unsubscription for user {self.user_id} and share source id {self.share_source_id}")
 
     def on_renderer_destroyed_callback(self):
         self.renderer_destroyed = True
@@ -235,7 +240,8 @@ class VideoInputManager:
             input_stream for input_stream in self.input_streams 
             if not any(
                 stream_info['user_id'] == input_stream.user_id and 
-                stream_info['stream_type'] == input_stream.stream_type 
+                stream_info['stream_type'] == input_stream.stream_type and
+                stream_info['share_source_id'] == input_stream.share_source_id
                 for stream_info in streams_info
             )
         ]
@@ -245,30 +251,31 @@ class VideoInputManager:
             self.input_streams.remove(stream)
 
         for stream_info in streams_info:
-            if any(input_stream.user_id == stream_info['user_id'] and input_stream.stream_type == stream_info['stream_type'] for input_stream in self.input_streams):
+            if any(input_stream.user_id == stream_info['user_id'] and input_stream.stream_type == stream_info['stream_type'] and input_stream.share_source_id == stream_info['share_source_id'] for input_stream in self.input_streams):
                 continue
 
-            self.input_streams.append(VideoInputStream(self, stream_info['user_id'], stream_info['stream_type']))
+            self.input_streams.append(VideoInputStream(self, stream_info['user_id'], stream_info['stream_type'], stream_info['share_source_id']))
 
     def cleanup(self):
         for input_stream in self.input_streams:
             input_stream.cleanup()
 
-    def set_mode(self, *, mode, active_speaker_id, active_sharer_id):
+    def set_mode(self, *, mode, active_speaker_id, active_sharer_id, active_sharer_source_id):
         if mode != VideoInputManager.Mode.ACTIVE_SPEAKER and mode != VideoInputManager.Mode.ACTIVE_SHARER:
             raise Exception("Unsupported mode " + str(mode))
         
-        print(f"In VideoInputManager.set_mode mode = {mode} active_speaker_id = {active_speaker_id} active_sharer_id = {active_sharer_id}")
+        print(f"In VideoInputManager.set_mode mode = {mode} active_speaker_id = {active_speaker_id} active_sharer_id = {active_sharer_id} active_sharer_source_id = {active_sharer_source_id}")
 
         self.mode = mode
 
         if self.mode == VideoInputManager.Mode.ACTIVE_SPEAKER:
             self.active_speaker_id = active_speaker_id
-            self.add_input_streams_if_needed([{"stream_type": VideoInputManager.StreamType.VIDEO, "user_id": active_speaker_id}])
+            self.add_input_streams_if_needed([{"stream_type": VideoInputManager.StreamType.VIDEO, "user_id": active_speaker_id, "share_source_id": None}])
 
         if self.mode == VideoInputManager.Mode.ACTIVE_SHARER:
             self.active_sharer_id = active_sharer_id
-            self.add_input_streams_if_needed([{"stream_type": VideoInputManager.StreamType.SCREENSHARE, "user_id": active_sharer_id}])
+            self.active_sharer_source_id = active_sharer_source_id
+            self.add_input_streams_if_needed([{"stream_type": VideoInputManager.StreamType.SCREENSHARE, "user_id": active_sharer_id, "share_source_id": active_sharer_source_id}])
 
     def wants_frames_for_user(self, user_id):
         if not self.wants_any_frames_callback():

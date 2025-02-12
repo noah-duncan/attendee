@@ -45,6 +45,8 @@ def process_utterance(self, utterance_id):
         options = PrerecordedOptions(
             model="nova-2",
             smart_format=True,
+            language=recording.bot.deepgram_language(),
+            detect_language=recording.bot.deepgram_detect_language(),
         )
 
         deepgram_credentials_record = recording.bot.project.credentials.filter(credential_type=Credentials.CredentialTypes.DEEPGRAM).first()

@@ -2,14 +2,15 @@ from django.shortcuts import render, get_object_or_404
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from .models import Bot, BotEventTypes, BotEventManager, Recording, RecordingTypes, TranscriptionTypes, TranscriptionProviders, Utterance, MediaBlob, BotMediaRequest, BotMediaRequestMediaTypes
-from .serializers import CreateBotSerializer, BotSerializer, TranscriptUtteranceSerializer, RecordingSerializer
+from .models import Bot, BotEventTypes, BotEventManager, Recording, RecordingTypes, TranscriptionTypes, TranscriptionProviders, Utterance, MediaBlob, BotMediaRequest, BotMediaRequestMediaTypes, Credentials, BotStates
+from .serializers import CreateBotSerializer, BotSerializer, TranscriptUtteranceSerializer, RecordingSerializer, SpeechSerializer
 from .authentication import ApiKeyAuthentication
 from .tasks import run_bot
 import redis
 import json
 import os
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter, OpenApiExample
+from django.urls import reverse
 
 TokenHeaderParameter = [
     OpenApiParameter(
@@ -112,7 +113,7 @@ class BotCreateView(APIView):
     @extend_schema(
         operation_id='Create Bot',
         summary='Create a new bot',
-        description='After being created,the bot will attempt to join the specified meeting.',
+        description='After being created, the bot will attempt to join the specified meeting.',
         request=CreateBotSerializer,
         responses={
             201: OpenApiResponse(response=BotSerializer, description='Bot created successfully', examples=[NewlyCreatedBotExample]),
@@ -130,11 +131,41 @@ class BotCreateView(APIView):
         project = request.auth.project
         
         meeting_url = serializer.validated_data['meeting_url']
+
+        if "meet.google.com" in meeting_url:
+            if not meeting_url.startswith("https://meet.google.com/"):
+                return Response(
+                    {'error': 'Google Meet URL must start with https://meet.google.com/'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Check if this is a Zoom meeting and validate credentials
+        if "zoom.us" in meeting_url:
+            zoom_credentials = project.credentials.filter(
+                credential_type=Credentials.CredentialTypes.ZOOM_OAUTH
+            ).first()
+            
+            if not zoom_credentials:
+                settings_url = request.build_absolute_uri(
+                    reverse('bots:project-settings', kwargs={'object_id': project.object_id})
+                )
+                return Response(
+                    {'error': f'Zoom App credentials are required to create a Zoom bot. Please add Zoom credentials at {settings_url}'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
         bot_name = serializer.validated_data['bot_name']
+        transcription_settings = serializer.validated_data['transcription_settings']
+        rtmp_settings = serializer.validated_data['rtmp_settings']
+        settings = {
+            'transcription_settings': transcription_settings,
+            'rtmp_settings': rtmp_settings
+        }
         bot = Bot.objects.create(
             project=project,
             meeting_url=meeting_url,
-            name=bot_name
+            name=bot_name,
+            settings=settings,
         )
 
         Recording.objects.create(
@@ -155,6 +186,83 @@ class BotCreateView(APIView):
             BotSerializer(bot).data,
             status=status.HTTP_201_CREATED
         )
+
+class SpeechView(APIView):
+    authentication_classes = [ApiKeyAuthentication]
+
+    @extend_schema(
+        operation_id='Output speech',
+        summary='Output speech',
+        description='Causes the bot to speak a message in the meeting.',
+        request=SpeechSerializer,
+        responses={
+            200: OpenApiResponse(description='Speech request created successfully'),
+            400: OpenApiResponse(description='Invalid input'),
+            404: OpenApiResponse(description='Bot not found')
+        },
+        parameters=[
+            *TokenHeaderParameter,
+            OpenApiParameter(
+                name="object_id",
+                type=str,
+                location=OpenApiParameter.PATH,
+                description="Bot ID",
+                examples=[OpenApiExample(
+                    'Bot ID Example',
+                    value="bot_xxxxxxxxxxx"
+                )]
+            )
+        ],
+        tags=['Bots'],
+    )
+    def post(self, request, object_id):
+        # Get the bot
+        try:
+            bot = Bot.objects.get(object_id=object_id, project=request.auth.project)
+        except Bot.DoesNotExist:
+            return Response(
+                {'error': 'Bot not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Validate the request data
+        serializer = SpeechSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if bot is in a state that can play media
+        if not BotEventManager.is_state_that_can_play_media(bot.state):
+            return Response(
+                {"error": f"Bot is in state {BotStates(bot.state).label} and cannot play media"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Check for Google TTS credentials. This is currently the only supported text-to-speech provider.
+        google_tts_credentials = bot.project.credentials.filter(
+            credential_type=Credentials.CredentialTypes.GOOGLE_TTS
+        ).first()
+        
+        if not google_tts_credentials:
+            settings_url = request.build_absolute_uri(
+                reverse('bots:project-settings', kwargs={'object_id': bot.project.object_id})
+            )
+            return Response(
+                {'error': f'Google Text-to-Speech credentials are required. Please add credentials at {settings_url}'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Create the media request
+        media_request = BotMediaRequest.objects.create(
+            bot=bot,
+            text_to_speak=serializer.validated_data['text'],
+            text_to_speech_settings=serializer.validated_data['text_to_speech_settings'],
+            media_type=BotMediaRequestMediaTypes.AUDIO
+        )
+
+        # Send sync command to notify bot of new media request
+        send_sync_command(bot, 'sync_media_requests')
+        
+        return Response(status=status.HTTP_200_OK)
 
 class OutputAudioView(APIView):
     authentication_classes = [ApiKeyAuthentication]
@@ -178,7 +286,19 @@ class OutputAudioView(APIView):
             400: OpenApiResponse(description='Invalid input'),
             404: OpenApiResponse(description='Bot not found')
         },
-        parameters=TokenHeaderParameter,
+        parameters=[
+            *TokenHeaderParameter,
+            OpenApiParameter(
+                name="object_id",
+                type=str,
+                location=OpenApiParameter.PATH,
+                description="Bot ID",
+                examples=[OpenApiExample(
+                    'Bot ID Example',
+                    value="bot_xxxxxxxxxxx"
+                )]
+            )
+        ],
         tags=['Bots'],
     )
     def post(self, request, object_id):
@@ -262,7 +382,19 @@ class OutputImageView(APIView):
             400: OpenApiResponse(description='Invalid input'),
             404: OpenApiResponse(description='Bot not found')
         },
-        parameters=TokenHeaderParameter,
+        parameters=[
+            *TokenHeaderParameter,
+            OpenApiParameter(
+                name="object_id",
+                type=str,
+                location=OpenApiParameter.PATH,
+                description="Bot ID",
+                examples=[OpenApiExample(
+                    'Bot ID Example',
+                    value="bot_xxxxxxxxxxx"
+                )]
+            )
+        ],
         tags=['Bots'],
     )
     def post(self, request, object_id):
@@ -339,7 +471,19 @@ class BotLeaveView(APIView):
                 ),
             404: OpenApiResponse(description='Bot not found')
         },
-        parameters=TokenHeaderParameter,
+        parameters=[
+            *TokenHeaderParameter,
+            OpenApiParameter(
+                name="object_id",
+                type=str,
+                location=OpenApiParameter.PATH,
+                description="Bot ID",
+                examples=[OpenApiExample(
+                    'Bot ID Example',
+                    value="bot_xxxxxxxxxxx"
+                )]
+            )
+        ],
         tags=['Bots'],
     )
     def post(self, request, object_id):
@@ -371,7 +515,19 @@ class RecordingView(APIView):
         responses={
             200: OpenApiResponse(response=RecordingSerializer, description='Short-lived S3 URL for the recording')
         },
-        parameters=TokenHeaderParameter,
+        parameters=[
+            *TokenHeaderParameter,
+            OpenApiParameter(
+                name="object_id",
+                type=str,
+                location=OpenApiParameter.PATH,
+                description="Bot ID",
+                examples=[OpenApiExample(
+                    'Bot ID Example',
+                    value="bot_xxxxxxxxxxx"
+                )]
+            )
+        ],
         tags=['Bots'],
     )
     def get(self, request, object_id):
@@ -411,7 +567,19 @@ class TranscriptView(APIView):
             200: OpenApiResponse(response=TranscriptUtteranceSerializer(many=True), description='List of transcribed utterances'),
             404: OpenApiResponse(description='Bot not found')
         },
-        parameters=TokenHeaderParameter,
+        parameters=[
+            *TokenHeaderParameter,
+            OpenApiParameter(
+                name="object_id",
+                type=str,
+                location=OpenApiParameter.PATH,
+                description="Bot ID",
+                examples=[OpenApiExample(
+                    'Bot ID Example',
+                    value="bot_xxxxxxxxxxx"
+                )]
+            )
+        ],
         tags=['Bots'],
     )
     def get(self, request, object_id):
@@ -464,7 +632,19 @@ class BotDetailView(APIView):
             200: OpenApiResponse(response=BotSerializer, description='Bot details', examples=[NewlyCreatedBotExample]),
             404: OpenApiResponse(description='Bot not found')
         },
-        parameters=TokenHeaderParameter,
+        parameters=[
+            *TokenHeaderParameter,
+            OpenApiParameter(
+                name="object_id",
+                type=str,
+                location=OpenApiParameter.PATH,
+                description="Bot ID",
+                examples=[OpenApiExample(
+                    'Bot ID Example',
+                    value="bot_xxxxxxxxxxx"
+                )]
+            )
+        ],
         tags=['Bots'],
     )        
     def get(self, request, object_id):

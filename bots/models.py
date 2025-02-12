@@ -135,6 +135,27 @@ class Bot(models.Model):
         null=False
     )
 
+    settings = models.JSONField(null=False, default=dict)
+
+    def deepgram_language(self):
+        return self.settings.get('transcription_settings', {}).get('deepgram', {}).get('language', None)
+
+    def deepgram_detect_language(self):
+        return self.settings.get('transcription_settings', {}).get('deepgram', {}).get('detect_language', None)
+
+    def rtmp_destination_url(self):
+        rtmp_settings = self.settings.get('rtmp_settings')
+        if not rtmp_settings:
+            return None
+            
+        destination_url = rtmp_settings.get('destination_url', '').rstrip('/')
+        stream_key = rtmp_settings.get('stream_key', '')
+        
+        if not destination_url:
+            return None
+            
+        return f"{destination_url}/{stream_key}"
+
     def last_bot_event(self):
         return self.bot_events.order_by('-created_at').first()
 
@@ -179,6 +200,12 @@ class BotEventSubTypes(models.IntegerChoices):
     COULD_NOT_JOIN_MEETING_NOT_STARTED_WAITING_FOR_HOST = 1, 'Bot could not join meeting - Meeting Not Started - Waiting for Host'
     FATAL_ERROR_PROCESS_TERMINATED = 2, 'Fatal error - Process Terminated'
     COULD_NOT_JOIN_MEETING_ZOOM_AUTHORIZATION_FAILED = 3, 'Bot could not join meeting - Zoom Authorization Failed'
+    COULD_NOT_JOIN_MEETING_ZOOM_MEETING_STATUS_FAILED = 4, 'Bot could not join meeting - Zoom Meeting Status Failed'
+    COULD_NOT_JOIN_MEETING_UNPUBLISHED_ZOOM_APP = 5, 'Bot could not join meeting - Unpublished Zoom Apps cannot join external meetings. See https://developers.zoom.us/blog/prepare-meeting-sdk-app-for-review'
+    FATAL_ERROR_RTMP_CONNECTION_FAILED = 6, 'Fatal error - RTMP Connection Failed'
+    COULD_NOT_JOIN_MEETING_ZOOM_SDK_INTERNAL_ERROR = 7, 'Bot could not join meeting - Zoom SDK Internal Error'
+    FATAL_ERROR_UI_ELEMENT_NOT_FOUND = 8, 'Fatal error - UI Element Not Found'
+    COULD_NOT_JOIN_MEETING_REQUEST_TO_JOIN_DENIED = 9, 'Bot could not join meeting - Request to join denied'
 
     @classmethod
     def sub_type_to_api_code(cls, value):
@@ -186,7 +213,13 @@ class BotEventSubTypes(models.IntegerChoices):
         mapping = {
             cls.COULD_NOT_JOIN_MEETING_NOT_STARTED_WAITING_FOR_HOST: 'meeting_not_started_waiting_for_host',
             cls.FATAL_ERROR_PROCESS_TERMINATED: 'process_terminated',
-            cls.COULD_NOT_JOIN_MEETING_ZOOM_AUTHORIZATION_FAILED: 'zoom_authorization_failed'
+            cls.COULD_NOT_JOIN_MEETING_ZOOM_AUTHORIZATION_FAILED: 'zoom_authorization_failed',
+            cls.COULD_NOT_JOIN_MEETING_ZOOM_MEETING_STATUS_FAILED: 'zoom_meeting_status_failed',
+            cls.COULD_NOT_JOIN_MEETING_UNPUBLISHED_ZOOM_APP: 'unpublished_zoom_app',
+            cls.FATAL_ERROR_RTMP_CONNECTION_FAILED: 'rtmp_connection_failed',
+            cls.COULD_NOT_JOIN_MEETING_ZOOM_SDK_INTERNAL_ERROR: 'zoom_sdk_internal_error',
+            cls.FATAL_ERROR_UI_ELEMENT_NOT_FOUND: 'ui_element_not_found',
+            cls.COULD_NOT_JOIN_MEETING_REQUEST_TO_JOIN_DENIED: 'request_to_join_denied'
         }
         return mapping.get(value)
 
@@ -205,7 +238,10 @@ class BotEvent(models.Model):
 
     event_type = models.IntegerField(choices=BotEventTypes.choices) # What happened
     event_sub_type = models.IntegerField(choices=BotEventSubTypes.choices, null=True) # Why it happened
-    debug_message = models.TextField(null=True, blank=True)
+    metadata = models.JSONField(
+        null=False,
+        default=dict
+    )
     requested_bot_action_taken_at = models.DateTimeField(null=True, blank=True) # For when a bot action is requested, this is the time it was taken    
     version = IntegerVersionField()
 
@@ -233,12 +269,18 @@ class BotEvent(models.Model):
                 check=(
                     # For FATAL_ERROR event type, must have one of the valid event subtypes
                     (Q(event_type=BotEventTypes.FATAL_ERROR) & 
-                     (Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_PROCESS_TERMINATED))) |
+                     (Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_PROCESS_TERMINATED) |
+                      Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_RTMP_CONNECTION_FAILED) |
+                      Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_UI_ELEMENT_NOT_FOUND))) |
                     
                     # For COULD_NOT_JOIN event type, must have one of the valid event subtypes
                     (Q(event_type=BotEventTypes.COULD_NOT_JOIN) & 
                      (Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_NOT_STARTED_WAITING_FOR_HOST) |
-                      Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_AUTHORIZATION_FAILED))) |
+                      Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_AUTHORIZATION_FAILED) |
+                      Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_MEETING_STATUS_FAILED) |
+                      Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_UNPUBLISHED_ZOOM_APP) |
+                      Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_SDK_INTERNAL_ERROR) |
+                      Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_REQUEST_TO_JOIN_DENIED))) |
                     
                     # For all other events, event_sub_type must be null
                     (~Q(event_type=BotEventTypes.FATAL_ERROR) & 
@@ -327,13 +369,15 @@ class BotEventManager:
         return state == BotStates.ENDED or state == BotStates.FATAL_ERROR
 
     @classmethod
-    def create_event(cls, bot: Bot, event_type: int, event_sub_type: int = None, event_debug_message: str = None, max_retries: int = 3) -> BotEvent:
+    def create_event(cls, bot: Bot, event_type: int, event_sub_type: int = None, event_metadata: dict = None, max_retries: int = 3) -> BotEvent:
         """
         Creates a new event and updates the bot state, handling concurrency issues.
         
         Args:
             bot: The Bot instance
             event_type: The type of event (from BotEventTypes)
+            event_sub_type: Optional sub-type of the event
+            event_metadata: Optional metadata dictionary (defaults to empty dict)
             max_retries: Maximum number of retries for concurrent modifications
         
         Returns:
@@ -342,6 +386,8 @@ class BotEventManager:
         Raises:
             ValidationError: If the state transition is not valid
         """
+        if event_metadata is None:
+            event_metadata = {}
         retry_count = 0
         
         while retry_count < max_retries:
@@ -388,7 +434,7 @@ class BotEventManager:
                         new_state=bot.state,
                         event_type=event_type,
                         event_sub_type=event_sub_type,
-                        debug_message=event_debug_message
+                        metadata=event_metadata
                     )
 
                     # If we moved to the recording state
@@ -709,6 +755,7 @@ class Credentials(models.Model):
     class CredentialTypes(models.IntegerChoices):
         DEEPGRAM = 1, 'Deepgram'
         ZOOM_OAUTH = 2, 'Zoom OAuth'
+        GOOGLE_TTS = 3, 'Google Text To Speech'
 
     project = models.ForeignKey(
         Project,
@@ -834,6 +881,9 @@ class MediaBlob(models.Model):
             content_type=content_type
         )
 
+class TextToSpeechProviders(models.IntegerChoices):
+    GOOGLE = 1, 'Google'
+
 class BotMediaRequestMediaTypes(models.IntegerChoices):
     IMAGE = 1, 'Image'
     AUDIO = 2, 'Audio'
@@ -865,10 +915,22 @@ class BotMediaRequest(models.Model):
         related_name='media_requests'
     )
 
+    text_to_speak = models.TextField(
+        null=True,
+        blank=True
+    )
+
+    text_to_speech_settings = models.JSONField(
+        null=True,
+        default=None
+    )
+
     media_blob = models.ForeignKey(
         MediaBlob,
         on_delete=models.PROTECT,
-        related_name='bot_media_requests'
+        related_name='bot_media_requests',
+        null=True,
+        blank=True
     )
 
     media_type = models.IntegerField(
@@ -938,3 +1000,50 @@ class BotMediaRequestManager:
 
         media_request.state = BotMediaRequestStates.DROPPED
         media_request.save()
+
+class BotDebugScreenshotStorage(S3Boto3Storage):
+    bucket_name = settings.AWS_RECORDING_STORAGE_BUCKET_NAME
+
+class BotDebugScreenshot(models.Model):
+    OBJECT_ID_PREFIX = 'shot_'
+    object_id = models.CharField(max_length=32, unique=True, editable=False)
+
+    bot_event = models.ForeignKey(
+        BotEvent,
+        on_delete=models.CASCADE,
+        related_name='debug_screenshots'
+    )
+
+    metadata = models.JSONField(
+        null=False,
+        default=dict
+    )
+
+    file = models.FileField(
+        storage=BotDebugScreenshotStorage()
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if not self.object_id:
+            # Generate a random 16-character string
+            random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+            self.object_id = f"{self.OBJECT_ID_PREFIX}{random_string}"
+        super().save(*args, **kwargs)
+
+    @property
+    def url(self):
+        if not self.file.name:
+            return None
+        # Generate a temporary signed URL that expires in 30 minutes (1800 seconds)
+        return self.file.storage.bucket.meta.client.generate_presigned_url(
+            'get_object',
+            Params={
+                'Bucket': self.file.storage.bucket_name,
+                'Key': self.file.name
+            },
+            ExpiresIn=1800
+        )
+
+    def __str__(self):
+        return f"Debug Screenshot {self.object_id} for event {self.bot_event}"

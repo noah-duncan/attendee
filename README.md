@@ -27,7 +27,7 @@ Join a meeting with a POST request to `/bots`:
 curl -X POST https://app.attendee.dev/api/v1/bots \
 -H 'Authorization: Token <YOUR_API_KEY>' \
 -H 'Content-Type: application/json' \
--d '{"meeting_url": "https://us05web.zoom.us/j/84315220467?pwd=9M1SQg2Pu2l0cB078uz6AHeWelSK19.1"}'
+-d '{"meeting_url": "https://us05web.zoom.us/j/84315220467?pwd=9M1SQg2Pu2l0cB078uz6AHeWelSK19.1", "bot_name": "My Bot"}'
 ```
 Response:
 ```{"id":"bot_3hfP0PXEsNinIZmh","meeting_url":"https://us05web.zoom.us/j/4849920355?pwd=aTBpNz760UTEBwUT2mQFtdXbl3SS3i.1","state":"joining","transcription_state":"not_started"}```
@@ -95,6 +95,7 @@ For more details, follow [this guide](https://developers.zoom.us/docs/meeting-sd
 
 - Build the Docker image: `docker compose -f dev.docker-compose.yaml build` (Takes about 5 minutes)
 - Create local environment variables: `docker compose -f dev.docker-compose.yaml run --rm attendee-app-local python init_env.py > .env`
+- Edit the `.env` file and enter your AWS information.
 - Start all the services: `docker compose -f dev.docker-compose.yaml up`
 - After the services have started, run migrations in a separate terminal tab: `docker compose -f dev.docker-compose.yaml exec attendee-app-local python manage.py migrate`
 - Goto localhost:8000 in your browser and create an account
