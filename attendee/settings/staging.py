@@ -25,3 +25,24 @@ ADMINS = []
 SERVER_EMAIL = 'noreply@mail.attendee.dev'
 
 CSRF_TRUSTED_ORIGINS = ['https://*.attendee.dev']
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'DEBUG',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+    },
+}
