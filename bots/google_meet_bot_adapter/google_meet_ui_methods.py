@@ -99,7 +99,7 @@ class GoogleMeetUIMethods:
                     raise UiFatalException("Could not find captions button. Timed out.", "click_captions_button", e)
 
             except Exception as e:
-                print("Could not find captions button. Unknown error. Raising UiFatalException")
+                print(f"Could not find captions button. Unknown error {e}. Raising UiFatalException")
                 raise UiFatalException("Could not find captions button. Unknown error.", "click_captions_button", e)
 
    # returns nothing if succeeded, raises an exception if failed
