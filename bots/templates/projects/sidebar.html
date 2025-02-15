@@ -30,6 +30,12 @@
                         <i class="bi bi-key"></i> API Keys
                     </a>
                     <a class="nav-link" 
+                        href="https://docs.attendee.dev"
+                        target="_blank"
+                        rel="noopener noreferrer">
+                        <i class="bi bi-book"></i> Docs
+                    </a>
+                    <a class="nav-link" 
                        hx-get="{% url 'projects:project-settings' project.object_id %}" 
                        hx-select="#content"
                        hx-target="#content"

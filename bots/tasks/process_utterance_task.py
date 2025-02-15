@@ -43,7 +43,7 @@ def process_utterance(self, utterance_id):
         }
 
         options = PrerecordedOptions(
-            model="nova-2",
+            model="nova-3",
             smart_format=True,
             language=recording.bot.deepgram_language(),
             detect_language=recording.bot.deepgram_detect_language(),

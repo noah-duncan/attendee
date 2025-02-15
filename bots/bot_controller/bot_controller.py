@@ -9,6 +9,8 @@ import redis
 from bots.bot_adapter import BotAdapter
 from .gstreamer_pipeline import GstreamerPipeline
 from .rtmp_client import RTMPClient
+from django.core.files.base import ContentFile
+from .pipeline_configuration import PipelineConfiguration
 
 import gi
 gi.require_version('GLib', '2.0')
@@ -43,6 +45,9 @@ class BotController:
             raise Exception("Zoom OAuth credentials data not found")
         
         return ZoomBotAdapter(
+            use_one_way_audio=self.pipeline_configuration.transcribe_audio,
+            use_mixed_audio=self.pipeline_configuration.record_audio or self.pipeline_configuration.rtmp_stream_audio,
+            use_video=self.pipeline_configuration.record_video or self.pipeline_configuration.rtmp_stream_video,
             display_name=self.bot_in_db.name,
             send_message_callback=self.on_message_from_adapter,
             add_audio_chunk_callback=self.individual_audio_input_manager.add_chunk,
@@ -97,7 +102,7 @@ class BotController:
             bot=self.bot_in_db,
             event_type=BotEventTypes.FATAL_ERROR,
             event_sub_type=BotEventSubTypes.FATAL_ERROR_RTMP_CONNECTION_FAILED,
-            event_debug_message=f"rtmp_destination_url={self.bot_in_db.rtmp_destination_url()}"
+            event_metadata={"rtmp_destination_url": self.bot_in_db.rtmp_destination_url()}
         )
         self.cleanup()
 
@@ -159,6 +164,11 @@ class BotController:
         self.cleanup_called = False
         self.run_called = False
 
+        if self.bot_in_db.rtmp_destination_url():
+            self.pipeline_configuration = PipelineConfiguration.rtmp_streaming_bot()
+        else:
+            self.pipeline_configuration = PipelineConfiguration.recorder_bot()
+
     def run(self):
         if self.run_called:
             raise Exception("Run already called, exiting")
@@ -175,11 +185,9 @@ class BotController:
         self.individual_audio_input_manager = IndividualAudioInputManager(save_utterance_callback=self.save_individual_audio_utterance, get_participant_callback=self.get_participant)
         self.closed_caption_manager = ClosedCaptionManager(save_utterance_callback=self.save_closed_caption_utterance, get_participant_callback=self.get_participant)
 
-        self.audio_output_manager = AudioOutputManager(currently_playing_audio_media_request_finished_callback=self.currently_playing_audio_media_request_finished)
-
         gstreamer_output_format = GstreamerPipeline.OUTPUT_FORMAT_MP4
         self.rtmp_client = None
-        if self.bot_in_db.rtmp_destination_url():
+        if self.pipeline_configuration.rtmp_stream_audio or self.pipeline_configuration.rtmp_stream_video:
             gstreamer_output_format = GstreamerPipeline.OUTPUT_FORMAT_FLV
             self.rtmp_client = RTMPClient(rtmp_url=self.bot_in_db.rtmp_destination_url())
             self.rtmp_client.start()
@@ -196,6 +204,8 @@ class BotController:
         self.streaming_uploader.start_upload()
 
         self.adapter = self.get_bot_adapter()
+
+        self.audio_output_manager = AudioOutputManager(currently_playing_audio_media_request_finished_callback=self.currently_playing_audio_media_request_finished, play_raw_audio_callback=self.adapter.send_raw_audio)
 
         # Create GLib main loop
         self.main_loop = GLib.MainLoop()
@@ -263,10 +273,8 @@ class BotController:
             print(f"Currently playing media request {currently_playing_media_request.id} so cannot play another media request")
             return
         
-        from bots.utils import mp3_to_pcm
         try:
             BotMediaRequestManager.set_media_request_playing(oldest_enqueued_media_request)
-            self.adapter.send_raw_audio(mp3_to_pcm(oldest_enqueued_media_request.media_blob.blob, sample_rate=8000))
             self.audio_output_manager.start_playing_audio_media_request(oldest_enqueued_media_request)
         except Exception as e:
             print(f"Error sending raw audio: {e}")
@@ -401,7 +409,7 @@ class BotController:
     def save_individual_audio_utterance(self, message):
         from bots.tasks.process_utterance_task import process_utterance
 
-        print(f"Received message that new utterance was detected")
+        print("Received message that new utterance was detected")
 
         # Create participant record if it doesn't exist
         participant, _ = Participant.objects.get_or_create(
@@ -433,6 +441,44 @@ class BotController:
         GLib.idle_add(lambda: self.take_action_based_on_message_from_adapter(message))
 
     def take_action_based_on_message_from_adapter(self, message):
+        if message.get('message') == BotAdapter.Messages.REQUEST_TO_JOIN_DENIED:
+            print("Received message that request to join was denied")
+            BotEventManager.create_event(
+                bot=self.bot_in_db,
+                event_type=BotEventTypes.COULD_NOT_JOIN,
+                event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_REQUEST_TO_JOIN_DENIED
+            )
+            self.cleanup()
+            return
+
+        if message.get('message') == BotAdapter.Messages.UI_ELEMENT_NOT_FOUND:
+            print(f"Received message that UI element not found at {message.get('current_time')}")
+            new_bot_event = BotEventManager.create_event(
+                bot=self.bot_in_db,
+                event_type=BotEventTypes.FATAL_ERROR,
+                event_sub_type=BotEventSubTypes.FATAL_ERROR_UI_ELEMENT_NOT_FOUND,
+                event_metadata={"step": message.get('step')}
+            )
+            
+            # Create debug screenshot
+            debug_screenshot = BotDebugScreenshot.objects.create(
+                bot_event=new_bot_event,
+                metadata={
+                    'step': message.get('step'),
+                    'current_time': message.get('current_time').isoformat(),
+                    'exception_type': message.get('exception_type'),
+                }
+            )
+            
+            # Read the file content from the path
+            with open(message.get('screenshot_path'), 'rb') as f:
+                screenshot_content = f.read()
+                debug_screenshot.file.save('debug_screenshot.png', ContentFile(screenshot_content), save=True)
+            
+            self.cleanup()
+            return
+
+
         if message.get('message') == BotAdapter.Messages.MEETING_ENDED:
             print("Received message that meeting ended")
             if self.individual_audio_input_manager:
@@ -461,7 +507,7 @@ class BotController:
                 bot=self.bot_in_db,
                 event_type=BotEventTypes.COULD_NOT_JOIN,
                 event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_UNPUBLISHED_ZOOM_APP,
-                event_debug_message=f"zoom_result_code={message.get('zoom_result_code')}"
+                event_metadata={"zoom_result_code": message.get('zoom_result_code')}
             )
             self.cleanup()
             return
@@ -472,7 +518,7 @@ class BotController:
                 bot=self.bot_in_db,
                 event_type=BotEventTypes.COULD_NOT_JOIN,
                 event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_MEETING_STATUS_FAILED,
-                event_debug_message=f"zoom_result_code={message.get('zoom_result_code')}"
+                event_metadata={"zoom_result_code": message.get('zoom_result_code')}
             )
             self.cleanup()
             return
@@ -483,7 +529,7 @@ class BotController:
                 bot=self.bot_in_db,
                 event_type=BotEventTypes.COULD_NOT_JOIN,
                 event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_AUTHORIZATION_FAILED,
-                event_debug_message=f"zoom_result_code={message.get('zoom_result_code')}"
+                event_metadata={"zoom_result_code": message.get('zoom_result_code')}
             )
             self.cleanup()
             return
@@ -494,7 +540,7 @@ class BotController:
                 bot=self.bot_in_db,
                 event_type=BotEventTypes.COULD_NOT_JOIN,
                 event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_SDK_INTERNAL_ERROR,
-                event_debug_message=f"zoom_result_code={message.get('zoom_result_code')}"
+                event_metadata={"zoom_result_code": message.get('zoom_result_code')}
             )
             self.cleanup()
             return

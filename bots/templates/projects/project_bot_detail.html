@@ -196,6 +196,20 @@
                                 → 
                                 <span class="badge bg-primary">{{ event.get_new_state_display }}</span>
                             </p>
+                            {% if event.debug_screenshots.all %}
+                                <div class="mt-2">
+                                    <h6 class="text-muted mb-2">Debug Screenshots:</h6>
+                                    {% for screenshot in event.debug_screenshots.all %}
+                                        <img src="{{ screenshot.url }}" 
+                                             class="img-fluid mb-2" 
+                                             alt="Debug Screenshot"
+                                             style="max-width: 300px;">
+                                        {% if screenshot.metadata %}
+                                            <pre class="small">{{ screenshot.metadata|pprint }}</pre>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
                         </div>
                     {% endfor %}
                 </div>

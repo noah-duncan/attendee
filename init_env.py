@@ -13,6 +13,9 @@ def main():
     
     print(f'CREDENTIALS_ENCRYPTION_KEY={credentials_key}')
     print(f'DJANGO_SECRET_KEY={django_key}')
+    print('AWS_RECORDING_STORAGE_BUCKET_NAME=')
+    print('AWS_ACCESS_KEY_ID=')
+    print('AWS_SECRET_ACCESS_KEY=')
 
 if __name__ == '__main__':
     main()

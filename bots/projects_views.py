@@ -1,5 +1,5 @@
 from django.shortcuts import render, get_object_or_404, redirect
-from .models import Project, Bot, BotStates, Bot, Credentials, RecordingStates, Utterance
+from .models import Project, BotStates, Bot, Credentials, RecordingStates, Utterance
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views import View
 from django.http import HttpResponse
@@ -131,7 +131,13 @@ class CreateCredentialsView(LoginRequiredMixin, ProjectUrlContextMixin, View):
                 
                 if not all(credentials_data.values()):
                     return HttpResponse('Missing required credentials data', status=400)
-
+            elif credential_type == Credentials.CredentialTypes.GOOGLE_TTS:
+                credentials_data = {
+                    'service_account_json': request.POST.get('service_account_json')
+                }
+                
+                if not all(credentials_data.values()):
+                    return HttpResponse('Missing required credentials data', status=400)
             else:
                 return HttpResponse('Unsupported credential type', status=400)
 
@@ -146,6 +152,10 @@ class CreateCredentialsView(LoginRequiredMixin, ProjectUrlContextMixin, View):
                 return render(request, 'projects/partials/zoom_credentials.html', context)
             elif credential.credential_type == Credentials.CredentialTypes.DEEPGRAM:
                 return render(request, 'projects/partials/deepgram_credentials.html', context)
+            elif credential.credential_type == Credentials.CredentialTypes.GOOGLE_TTS:
+                return render(request, 'projects/partials/google_tts_credentials.html', context)
+            else:
+                return HttpResponse('Cannot render the partial for this credential type', status=400)
 
         except Exception as e:
             return HttpResponse(str(e), status=400)
@@ -168,12 +178,19 @@ class ProjectSettingsView(LoginRequiredMixin, ProjectUrlContextMixin, View):
             credential_type=Credentials.CredentialTypes.DEEPGRAM
         ).first()
 
+        google_tts_credentials = Credentials.objects.filter(
+            project=project,
+            credential_type=Credentials.CredentialTypes.GOOGLE_TTS
+        ).first()
+
         context = self.get_project_context(object_id, project)
         context.update({
             'zoom_credentials': zoom_credentials.get_credentials() if zoom_credentials else None,
             'zoom_credential_type': Credentials.CredentialTypes.ZOOM_OAUTH,
             'deepgram_credentials': deepgram_credentials.get_credentials() if deepgram_credentials else None,
             'deepgram_credential_type': Credentials.CredentialTypes.DEEPGRAM,
+            'google_tts_credentials': google_tts_credentials.get_credentials() if google_tts_credentials else None,
+            'google_tts_credential_type': Credentials.CredentialTypes.GOOGLE_TTS,
         })
         
         return render(request, 'projects/project_settings.html', context)
@@ -214,6 +231,9 @@ class ProjectBotDetailView(LoginRequiredMixin, ProjectUrlContextMixin, View):
                 queryset=Utterance.objects.select_related('participant')
             )
         )
+
+        # Prefetch bot events with their debug screenshots
+        bot.bot_events.prefetch_related('debug_screenshots')
 
         context = self.get_project_context(object_id, project)
         context.update({

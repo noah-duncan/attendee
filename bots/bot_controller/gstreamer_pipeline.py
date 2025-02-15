@@ -144,7 +144,7 @@ class GstreamerPipeline:
             print(f"GStreamer Error: {err}, Debug: {debug}, src_name: {src_name}")
 
         elif t == Gst.MessageType.EOS:
-            print(f"GStreamer pipeline reached end of stream")
+            print("GStreamer pipeline reached end of stream")
 
     def monitor_pipeline_stats(self):
         """Periodically print pipeline statistics"""

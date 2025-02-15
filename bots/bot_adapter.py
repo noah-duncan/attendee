@@ -10,3 +10,5 @@ class BotAdapter:
         BOT_RECORDING_PERMISSION_GRANTED = "Bot recording permission granted"
         MEETING_ENDED = "Meeting ended"
         NEW_UTTERANCE = "New utterance"
+        UI_ELEMENT_NOT_FOUND = "UI Element Not Found"
+        REQUEST_TO_JOIN_DENIED = "Request to join denied"

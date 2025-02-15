@@ -95,6 +95,7 @@ For more details, follow [this guide](https://developers.zoom.us/docs/meeting-sd
 
 - Build the Docker image: `docker compose -f dev.docker-compose.yaml build` (Takes about 5 minutes)
 - Create local environment variables: `docker compose -f dev.docker-compose.yaml run --rm attendee-app-local python init_env.py > .env`
+- Edit the `.env` file and enter your AWS information.
 - Start all the services: `docker compose -f dev.docker-compose.yaml up`
 - After the services have started, run migrations in a separate terminal tab: `docker compose -f dev.docker-compose.yaml exec attendee-app-local python manage.py migrate`
 - Goto localhost:8000 in your browser and create an account
@@ -105,15 +106,16 @@ For more details, follow [this guide](https://developers.zoom.us/docs/meeting-sd
 ## Roadmap
 
 - [x] Join and leave Zoom meetings
-- [x] Produce transcripts
+- [x] Transcripts
 - [x] API Reference
-- [x] Audio output
+- [x] Audio input / output
 - [x] Video input / output
+- [x] Google Meet support
+- [x] Speech support
 - [ ] Automatically leave meetings
 - [ ] [ZAK token](https://developers.zoom.us/docs/meeting-sdk/auth/#start-meetings-and-webinars-with-a-zoom-users-zak-token) and [Join token](https://developers.zoom.us/docs/api/meetings/#tag/meetings/GET/meetings/{meetingId}/jointoken/local_recording) support
 - [ ] Scheduled meetings
 - [ ] Webhooks for state changes
-- [ ] Google Meet support
 - [ ] Microsoft Teams support
 
-
+Have suggestions for the roadmap? Join the [Slack Community](https://join.slack.com/t/attendeecommu-rff8300/shared_invite/zt-2uhpam6p2-ZzLAoVrljbL2UEjqdSHrgQ) or open an issue.

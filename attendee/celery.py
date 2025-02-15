@@ -1,4 +1,5 @@
-import os, ssl
+import os
+import ssl
 from celery import Celery
 
 # Set the default Django settings module

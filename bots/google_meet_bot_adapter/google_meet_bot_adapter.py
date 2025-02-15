@@ -1,7 +1,5 @@
 import asyncio
 import os
-import subprocess
-import click
 import datetime
 import requests
 import json
@@ -16,15 +14,13 @@ from time import sleep
 import undetected_chromedriver as uc
 from pyvirtualdisplay import Display
 
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
-import websockets
 from websockets.sync.server import serve
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 from bots.bot_adapter import BotAdapter
-
+from bots.google_meet_bot_adapter.google_meet_ui_methods import GoogleMeetUIMethods, UiRetryableException, UiFatalException, UiRequestToJoinDeniedException
 
 def scale_i420(frame, frame_size, new_size):
     new_width, new_height = new_size
@@ -108,7 +104,7 @@ def scale_i420(frame, frame_size, new_size):
         final_v.flatten()
     ]).astype(np.uint8).tobytes()
 
-class GoogleMeetBotAdapter(BotAdapter):
+class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
 
     def __init__(self, *, display_name, send_message_callback, meeting_url, add_video_frame_callback, wants_any_video_frames_callback, add_mixed_audio_chunk_callback, upsert_caption_callback):
         self.display_name = display_name
@@ -270,36 +266,46 @@ class GoogleMeetBotAdapter(BotAdapter):
                     continue
                 raise  # Re-raise other OSErrors
 
-    def init(self):
-        if os.environ.get('DISPLAY') is None:
-            # Create virtual display only if no real display is available
-            display = Display(visible=0, size=(1920, 1080))
-            display.start()
-        
-        # Start websocket server in a separate thread
-        websocket_thread = threading.Thread(target=self.run_websocket_server, daemon=True)
-        websocket_thread.start()
-        
-        sleep(0.5)  # Give the websocketserver time to start
-        if not self.websocket_port:
-            raise Exception("WebSocket server failed to start")
+    def send_request_to_join_denied_message(self):
+        self.send_message_callback({'message': self.Messages.REQUEST_TO_JOIN_DENIED})
 
-        meet_link = self.meeting_url
-        print(f"start recorder for {meet_link}")
+    def send_debug_screenshot_message(self, step, e):
+        current_time = datetime.datetime.now()
+        timestamp = current_time.strftime("%Y%m%d_%H%M%S")
+        screenshot_path = f"/tmp/ui_element_not_found_{timestamp}.png"
+        self.driver.save_screenshot(screenshot_path)
+        self.send_message_callback({
+            'message': self.Messages.UI_ELEMENT_NOT_FOUND, 
+            'step': step, 
+            'current_time': current_time, 
+            'screenshot_path': screenshot_path,
+            'exception_type': e.__class__.__name__ if e else "original_exception_not_available"
+        })
+
+    def init_driver(self):
+        log_path = "chromedriver.log"
 
         options = uc.ChromeOptions()
 
         options.add_argument("--use-fake-ui-for-media-stream")
+        options.add_argument("--use-fake-device-for-media-stream")
         options.add_argument("--window-size=1920x1080")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-setuid-sandbox")
+        options.add_argument("--mute-audio")
         # options.add_argument('--headless=new')
         options.add_argument("--disable-gpu")
         options.add_argument("--disable-extensions")
         options.add_argument("--disable-application-cache")
         options.add_argument("--disable-setuid-sandbox")
         options.add_argument("--disable-dev-shm-usage")
-        log_path = "chromedriver.log"
+
+        if self.driver:
+            try:
+                self.driver.quit()
+            except Exception as e:
+                print(f"Error closing existing driver: {e}")
+            self.driver = None
 
         self.driver = uc.Chrome(service_log_path=log_path, use_subprocess=True, options=options, version_main=132)
 
@@ -339,77 +345,50 @@ class GoogleMeetBotAdapter(BotAdapter):
             'source': combined_code
         })
 
-        self.driver.get(meet_link)
-
-        self.driver.execute_cdp_cmd(
-            "Browser.grantPermissions",
-            {
-                "origin": meet_link,
-                "permissions": [
-                    "geolocation",
-                    "audioCapture",
-                    "displayCapture",
-                    "videoCapture",
-                    "videoCapturePanTiltZoom",
-                ],
-            },
-        )
-
-        print("Waiting for the name input field...")
-        name_input = WebDriverWait(self.driver, 60).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="text"][aria-label="Your name"]'))
-        )
+    def init(self):
+        if os.environ.get('DISPLAY') is None:
+            # Create virtual display only if no real display is available
+            display = Display(visible=0, size=(1920, 1080))
+            display.start()
         
-        print("Waiting for 1 second...")
-        sleep(1)
+        # Start websocket server in a separate thread
+        websocket_thread = threading.Thread(target=self.run_websocket_server, daemon=True)
+        websocket_thread.start()
         
-        print("Filling the input field with the name...")
-        name_input.send_keys(self.display_name)
-        
-        print("Waiting for the 'Ask to join' button...")
-        join_button = WebDriverWait(self.driver, 60).until(
-            EC.presence_of_element_located((By.XPATH, '//button[.//span[text()="Ask to join"]]'))
-        )
-        
-        print("Clicking the 'Ask to join' button...")
-        join_button.click()
+        sleep(0.5)  # Give the websocketserver time to start
+        if not self.websocket_port:
+            raise Exception("WebSocket server failed to start")
 
+        print(f"Trying to join google meet meeting at {self.meeting_url}")
 
-        print("Waiting for captions button...")
-        captions_button = WebDriverWait(self.driver, 600).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'button[aria-label="Turn on captions"]'))
-        )
-        print("Clicking captions button...")
-        captions_button.click()
+        num_retries = 0
+        max_retries = 3
+        while num_retries < max_retries: 
+            try:
+                self.init_driver()
+                self.attempt_to_join_meeting()
+                print("Successfully joined meeting")
+                break
 
-        print("Waiting for the more options button...")
-        MORE_OPTIONS_BUTTON_SELECTOR = 'button[jsname="NakZHc"][aria-label="More options"]'
-        more_options_button = WebDriverWait(self.driver, 6).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, MORE_OPTIONS_BUTTON_SELECTOR))
-        )
-        print("Clicking the more options button...")
-        more_options_button.click()
+            except UiRequestToJoinDeniedException:
+                self.send_request_to_join_denied_message()
+                return
 
-        print("Waiting for the 'Change layout' list item...")
-        change_layout_list_item = WebDriverWait(self.driver, 6).until(
-            EC.presence_of_element_located((By.XPATH, '//li[.//span[text()="Change layout"]]'))
-        )
-        print("Clicking the 'Change layout' list item...")
-        change_layout_list_item.click()
+            except UiFatalException as e:
+                self.send_debug_screenshot_message(e.step, e.original_exception)
+                return
 
-        print("Waiting for the 'Spotlight' label element")
-        spotlight_label = WebDriverWait(self.driver, 6).until(
-            EC.presence_of_element_located((By.XPATH, '//label[.//span[text()="Spotlight"]]'))
-        )
-        print("Clicking the 'Spotlight' label element")
-        spotlight_label.click()
-        
-        print("Waiting for the close button")
-        close_button = WebDriverWait(self.driver, 6).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'button[aria-label="Close"]'))
-        )
-        print("Clicking the close button")
-        close_button.click()
+            except UiRetryableException as e:
+
+                if num_retries >= max_retries:
+                    print("Failed to join meeting and the exception is retryable but the number of retries exceeded the limit, so returning")
+                    self.send_debug_screenshot_message(e.step, e.original_exception)
+                    return
+                
+                print("Failed to join meeting and the exception is retryable so retrying")
+
+            num_retries += 1
+            sleep(1)
 
         self.send_message_callback({'message': self.Messages.BOT_JOINED_MEETING})
         self.send_message_callback({'message': self.Messages.BOT_RECORDING_PERMISSION_GRANTED})
@@ -426,7 +405,7 @@ class GoogleMeetBotAdapter(BotAdapter):
 
         try:
             print("disable media sending")
-            self.driver.execute_script("window.ws.disableMediaSending();")
+            self.driver.execute_script("window.ws?.disableMediaSending();")
             
             print("Waiting for the leave button")
             leave_button = WebDriverWait(self.driver, 6).until(
@@ -443,7 +422,7 @@ class GoogleMeetBotAdapter(BotAdapter):
     def cleanup(self):
         try:
             print("disable media sending")
-            self.driver.execute_script("window.ws.disableMediaSending();")
+            self.driver.execute_script("window.ws?.disableMediaSending();")
         except Exception as e:
             print(f"Error during media sending disable: {e}")
 
@@ -489,3 +468,11 @@ class GoogleMeetBotAdapter(BotAdapter):
                 print("Auto-leaving meeting because there was no media message for 30 seconds")
                 self.leave()
                 return
+
+    def send_raw_audio(self, bytes, sample_rate):
+        audio_data = np.frombuffer(bytes, dtype=np.int16)
+        
+        # Play the audio through the audio handler
+        self.driver.execute_script("""
+            playAudio(arguments[0], arguments[1]);
+        """, audio_data.tolist(), sample_rate)

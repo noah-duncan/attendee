@@ -1,4 +1,3 @@
-import unittest
 import os
 from pyvirtualdisplay import Display
 import undetected_chromedriver as uc
