@@ -37,7 +37,7 @@ class BotPodCreator:
             bot_name: Optional name for the bot (will generate if not provided)
         """
         if bot_name is None:
-            bot_name = f"bot-{uuid.uuid4().hex[:8]}"
+            bot_name = f"bot-{bot_id}-{uuid.uuid4().hex[:8]}"
 
         # Set the command based on bot_id
         # python manage.py run_bot --botid
