@@ -67,7 +67,7 @@ class BotPodCreator:
                         command=command,
                         resources=client.V1ResourceRequirements(
                             requests={
-                                "cpu": "3",
+                                "cpu": "4",
                                 "memory": "2Gi"
                             },
                             limits={
