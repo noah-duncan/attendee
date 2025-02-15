@@ -48,4 +48,4 @@ env 'ERROR_REPORTS_RECEIVER_EMAIL_ADDRESS', 'noah@attendee.dev'
 
 # Run and scale any command on Kubernetes
 proc :web, 'gunicorn attendee.wsgi'
-proc :worker, 'celery -A attendee worker -l info', cpu: 1, ram: 1
+#proc :worker, 'celery -A attendee worker -l info', cpu: 1, ram: 1
