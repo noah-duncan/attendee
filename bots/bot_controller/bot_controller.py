@@ -11,6 +11,7 @@ from .gstreamer_pipeline import GstreamerPipeline
 from .rtmp_client import RTMPClient
 from django.core.files.base import ContentFile
 from .pipeline_configuration import PipelineConfiguration
+import traceback
 
 import gi
 gi.require_version('GLib', '2.0')
@@ -368,6 +369,8 @@ class BotController:
             
         except Exception as e:
             print(f"Error in timeout callback: {e}")
+            print("Traceback:")
+            traceback.print_exc()
             self.cleanup()
             return False
 
@@ -453,27 +456,33 @@ class BotController:
 
         if message.get('message') == BotAdapter.Messages.UI_ELEMENT_NOT_FOUND:
             print(f"Received message that UI element not found at {message.get('current_time')}")
+
+            screenshot_available = message.get('screenshot_path') is not None
+
             new_bot_event = BotEventManager.create_event(
                 bot=self.bot_in_db,
                 event_type=BotEventTypes.FATAL_ERROR,
                 event_sub_type=BotEventSubTypes.FATAL_ERROR_UI_ELEMENT_NOT_FOUND,
-                event_metadata={"step": message.get('step')}
+                event_metadata={
+                        'step': message.get('step'),
+                        'current_time': message.get('current_time').isoformat(),
+                        'exception_type': message.get('exception_type'),
+                        'exception_message': message.get('exception_message'),
+                        'inner_exception_type': message.get('inner_exception_type'),
+                        'inner_exception_message': message.get('inner_exception_message'),
+                    }
             )
-            
-            # Create debug screenshot
-            debug_screenshot = BotDebugScreenshot.objects.create(
-                bot_event=new_bot_event,
-                metadata={
-                    'step': message.get('step'),
-                    'current_time': message.get('current_time').isoformat(),
-                    'exception_type': message.get('exception_type'),
-                }
-            )
-            
-            # Read the file content from the path
-            with open(message.get('screenshot_path'), 'rb') as f:
-                screenshot_content = f.read()
-                debug_screenshot.file.save('debug_screenshot.png', ContentFile(screenshot_content), save=True)
+
+            if screenshot_available:
+                # Create debug screenshot
+                debug_screenshot = BotDebugScreenshot.objects.create(
+                    bot_event=new_bot_event
+                )
+                
+                # Read the file content from the path
+                with open(message.get('screenshot_path'), 'rb') as f:
+                    screenshot_content = f.read()
+                    debug_screenshot.file.save('debug_screenshot.png', ContentFile(screenshot_content), save=True)
             
             self.cleanup()
             return

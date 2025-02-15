@@ -21,7 +21,7 @@ class TestChromeDriver(TransactionTestCase):
             options.add_argument("--disable-dev-shm-usage")
 
             # Initialize Chrome driver
-            driver = uc.Chrome(use_subprocess=True, options=options, version_main=132)
+            driver = uc.Chrome(use_subprocess=True, options=options, version_main=133)
 
             try:
                 # Load Google

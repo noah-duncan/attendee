@@ -196,6 +196,9 @@
                                 → 
                                 <span class="badge bg-primary">{{ event.get_new_state_display }}</span>
                             </p>
+                            {% if event.metadata %}
+                                <pre class="small mt-3"><span class="small">metadata: </span>{{ event.metadata|pprint }}</pre>
+                            {% endif %}
                             {% if event.debug_screenshots.all %}
                                 <div class="mt-2">
                                     <h6 class="text-muted mb-2">Debug Screenshots:</h6>
