@@ -41,7 +41,7 @@ class BotPodCreator:
 
         # Set the command based on bot_id
         # python manage.py run_bot --botid
-        command = ["python", "-c", "print('Hello, world!')"]
+        command = ["python", "manage.py", "run_bot", "--botid", str(bot_id)]
 
         # Metadata labels matching the deployment
         labels = {
@@ -68,10 +68,10 @@ class BotPodCreator:
                         resources=client.V1ResourceRequirements(
                             requests={
                                 "cpu": "4",
-                                "memory": "2Gi"
+                                "memory": "8Gi"
                             },
                             limits={
-                                "memory": "2Gi"
+                                "memory": "8Gi"
                             }
                         ),
                         env_from=[
