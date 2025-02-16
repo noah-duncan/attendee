@@ -85,3 +85,5 @@ pyasn1==0.6.1
 pyasn1_modules==0.4.1
 rsa==4.9
 ruff==0.9.6
+durationpy==0.9
+kubernetes==32.0.0

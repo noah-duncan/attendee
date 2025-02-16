@@ -18,9 +18,14 @@ from django.contrib import admin
 from django.urls import path, include
 from accounts import views
 from django.conf import settings
+from django.http import HttpResponse
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
+def health_check(request):
+    return HttpResponse(status=200)
+
 urlpatterns = [
+    path('health/', health_check, name='health-check'),
     path('admin/', admin.site.urls),
     path('accounts/', include('allauth.urls')),
     path('accounts/', include('allauth.socialaccount.urls')),

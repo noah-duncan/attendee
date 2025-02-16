@@ -5,6 +5,7 @@ py-zoom-meeting-sdk/
 
 venv
 env.sh
+.cuber/
 
 ### OSX ###
 .DS_Store

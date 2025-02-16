@@ -10,7 +10,7 @@ import json
 import os
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter, OpenApiExample
 from django.urls import reverse
-
+from .bot_pod_creator import BotPodCreator
 TokenHeaderParameter = [
     OpenApiParameter(
         name="Authorization",
@@ -178,8 +178,14 @@ class BotCreateView(APIView):
         # Try to transition the state from READY to JOINING
         BotEventManager.create_event(bot, BotEventTypes.JOIN_REQUESTED)
 
+        # this is the old way of launching the bot
         # Launch the Celery task after successful creation
-        run_bot.delay(bot.id)
+        #run_bot.delay(bot.id)
+
+        # this is the new way of launching the bot
+        # Create a bot pod
+        bot_pod_creator = BotPodCreator()
+        bot_pod_creator.create_bot_pod(bot.id)
         
         return Response(
             BotSerializer(bot).data,
