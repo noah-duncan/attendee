@@ -343,8 +343,6 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
         options.add_argument("--disable-application-cache")
         options.add_argument("--disable-setuid-sandbox")
         options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--enable-logging")
-        options.add_argument("--v=1")
 
         if self.driver:
             try:
