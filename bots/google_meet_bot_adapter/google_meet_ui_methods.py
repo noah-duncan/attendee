@@ -56,7 +56,7 @@ class GoogleMeetUIMethods:
             element.click()
         except Exception as e:
             print(f"Error occurred when clicking element {step}, will retry")
-            raise UiCouldNotClickElementException("Error occurred when clicking element", step)
+            raise UiCouldNotClickElementException("Error occurred when clicking element", step, e)
 
     def look_for_blocked_element(self, step):
         cannot_join_element = self.find_element_by_selector(By.XPATH, '//*[contains(text(), "You can\'t join this video call")]')
