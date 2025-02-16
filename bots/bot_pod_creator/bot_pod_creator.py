@@ -41,7 +41,7 @@ class BotPodCreator:
 
         # Set the command based on bot_id
         # python manage.py run_bot --botid
-        command = ["echo 'YOLOSDSD'"]
+        command = ["python", "-c", "print('Hello, world!')"]
 
         # Metadata labels matching the deployment
         labels = {
