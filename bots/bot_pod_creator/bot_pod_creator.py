@@ -41,7 +41,7 @@ class BotPodCreator:
 
         # Set the command based on bot_id
         # python manage.py run_bot --botid
-        command = ["python", "-X", "importtime", "manage.py", "run_bot", "--botid", str(bot_id)]
+        command = ["python", "manage.py", "run_bot", "--botid", str(bot_id)]
 
         # Metadata labels matching the deployment
         labels = {
