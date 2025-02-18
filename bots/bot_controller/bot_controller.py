@@ -496,17 +496,19 @@ class BotController:
             if self.closed_caption_manager:
                 print("Flushing captions...")
                 self.closed_caption_manager.flush_captions()
-
-            if self.bot_in_db.state == BotStates.LEAVING:
-                BotEventManager.create_event(
-                    bot=self.bot_in_db,
-                    event_type=BotEventTypes.BOT_LEFT_MEETING
-                )
+            if self.bot_in_db.state != BotStates.FATAL_ERROR:
+                if self.bot_in_db.state == BotStates.LEAVING:
+                    BotEventManager.create_event(
+                        bot=self.bot_in_db,
+                        event_type=BotEventTypes.BOT_LEFT_MEETING
+                    )
+                else:
+                    BotEventManager.create_event(
+                        bot=self.bot_in_db,
+                        event_type=BotEventTypes.MEETING_ENDED
+                    )
             else:
-                BotEventManager.create_event(
-                    bot=self.bot_in_db,
-                    event_type=BotEventTypes.MEETING_ENDED
-                )
+                print("Bot is in FATAL_ERROR state. Bot cannot rejoin once removed. End the meet for all and start meet again with same link")
             self.cleanup()
             return
 
