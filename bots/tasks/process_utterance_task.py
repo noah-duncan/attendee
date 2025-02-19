@@ -24,8 +24,6 @@ def process_utterance(self, utterance_id):
     recording = utterance.recording
     RecordingManager.set_recording_transcription_in_progress(recording)
 
-    utterance.refresh_from_db() # because of the .tobytes() issue
-
     if utterance.transcription is None:
         payload: FileSource = {
             "buffer": utterance.audio_blob.tobytes(),
