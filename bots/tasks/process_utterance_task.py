@@ -1,5 +1,4 @@
 from celery import shared_task
-from bots.models import *
 from django.db import DatabaseError
 
 @shared_task(
@@ -7,15 +6,15 @@ from django.db import DatabaseError
     soft_time_limit=3600,
     autoretry_for=(DatabaseError,),
     retry_backoff=True,  # Enable exponential backoff
-    max_retries=5
+    max_retries=5,
 )
 def process_utterance(self, utterance_id):
     import json
 
     from deepgram import (
         DeepgramClient,
-        PrerecordedOptions,
         FileSource,
+        PrerecordedOptions,
     )
 
     utterance = Utterance.objects.get(id=utterance_id)
@@ -46,7 +45,7 @@ def process_utterance(self, utterance_id):
         if not deepgram_credentials:
             raise Exception("Deepgram credentials not found")
 
-        deepgram = DeepgramClient(deepgram_credentials['api_key'])
+        deepgram = DeepgramClient(deepgram_credentials["api_key"])
 
         response = deepgram.listen.rest.v("1").transcribe_file(payload, options)
         utterance.transcription = json.loads(response.results.channels[0].alternatives[0].to_json())

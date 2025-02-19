@@ -1,7 +1,9 @@
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import redirect
-from bots.models import Project
 from django.http import Http404
+from django.shortcuts import redirect
+
+from bots.models import Project
+
 
 @login_required
 def home(request):
@@ -10,8 +12,8 @@ def home(request):
     if not project:
         project = Project.objects.create(
             name=f"{request.user.email}'s first project",
-            organization=request.user.organization
+            organization=request.user.organization,
         )
     if project:
-        return redirect('projects:project-dashboard', object_id=project.object_id)
+        return redirect("projects:project-dashboard", object_id=project.object_id)
     raise Http404("No projects found for this organization. You need to create a project first.")

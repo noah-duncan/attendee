@@ -1,13 +1,16 @@
 import queue
-import webrtcvad
 from datetime import datetime, timedelta
+
 import numpy as np
+import webrtcvad
+
 
 def calculate_normalized_rms(audio_bytes):
     samples = np.frombuffer(audio_bytes, dtype=np.int16)
     rms = np.sqrt(np.mean(np.square(samples)))
     # Normalize by max possible value for 16-bit audio (32768)
     return rms / 32768
+
 
 class IndividualAudioInputManager:
     def __init__(self, *, save_utterance_callback, get_participant_callback):
@@ -40,7 +43,11 @@ class IndividualAudioInputManager:
     # When the meeting ends, we need to flush all utterances. Do this by pretending that we received a chunk of silence at the end of the meeting.
     def flush_utterances(self):
         for speaker_id in list(self.first_nonsilent_audio_time.keys()):
-            self.process_chunk(speaker_id, datetime.utcnow() + timedelta(seconds=self.SILENCE_DURATION_LIMIT + 1), None)
+            self.process_chunk(
+                speaker_id,
+                datetime.utcnow() + timedelta(seconds=self.SILENCE_DURATION_LIMIT + 1),
+                None,
+            )
 
     def silence_detected(self, chunk_bytes):
         if calculate_normalized_rms(chunk_bytes) < 0.01:
@@ -49,7 +56,7 @@ class IndividualAudioInputManager:
 
     def process_chunk(self, speaker_id, chunk_time, chunk_bytes):
         audio_is_silent = self.silence_detected(chunk_bytes) if chunk_bytes else True
-        
+
         # Initialize buffer and timing for new speaker
         if speaker_id not in self.utterances or len(self.utterances[speaker_id]) == 0:
             if audio_is_silent:
@@ -61,7 +68,7 @@ class IndividualAudioInputManager:
         # Add new audio data to buffer
         if chunk_bytes:
             self.utterances[speaker_id].extend(chunk_bytes)
-        
+
         should_flush = False
         reason = None
 
@@ -69,7 +76,7 @@ class IndividualAudioInputManager:
         if len(self.utterances[speaker_id]) >= self.UTTERANCE_SIZE_LIMIT:
             should_flush = True
             reason = "buffer_full"
-        
+
         # Check for silence
         if audio_is_silent:
             silence_duration = (chunk_time - self.last_nonsilent_audio_time[speaker_id]).total_seconds()
@@ -85,12 +92,14 @@ class IndividualAudioInputManager:
         if should_flush and len(self.utterances[speaker_id]) > 0:
             participant = self.get_participant_callback(speaker_id)
             if participant:
-                self.save_utterance_callback({
-                    **participant,
-                    'audio_data': bytes(self.utterances[speaker_id]),
-                    'timestamp_ms': int(self.first_nonsilent_audio_time[speaker_id].timestamp() * 1000),
-                    'flush_reason': reason
-                })
+                self.save_utterance_callback(
+                    {
+                        **participant,
+                        "audio_data": bytes(self.utterances[speaker_id]),
+                        "timestamp_ms": int(self.first_nonsilent_audio_time[speaker_id].timestamp() * 1000),
+                        "flush_reason": reason,
+                    }
+                )
             # Clear the buffer
             self.utterances[speaker_id] = bytearray()
             del self.first_nonsilent_audio_time[speaker_id]

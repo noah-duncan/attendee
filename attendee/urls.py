@@ -14,25 +14,39 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
-from django.contrib import admin
-from django.urls import path, include
-from accounts import views
+
 from django.conf import settings
-from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+from django.contrib import admin
+from django.urls import include, path
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
+
+from accounts import views
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('accounts/', include('allauth.urls')),
-    path('accounts/', include('allauth.socialaccount.urls')),
-    path('', views.home, name='home'),
-    path('projects/', include('bots.projects_urls', namespace='projects')),
-    path('api/v1/', include('bots.bots_api_urls')),
+    path("admin/", admin.site.urls),
+    path("accounts/", include("allauth.urls")),
+    path("accounts/", include("allauth.socialaccount.urls")),
+    path("", views.home, name="home"),
+    path("projects/", include("bots.projects_urls", namespace="projects")),
+    path("api/v1/", include("bots.bots_api_urls")),
 ]
 
 if settings.DEBUG:
     # API docs routes - only available in development
     urlpatterns += [
-        path('schema/', SpectacularAPIView.as_view(), name='schema'),
-        path('schema/swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
-        path('schema/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+        path("schema/", SpectacularAPIView.as_view(), name="schema"),
+        path(
+            "schema/swagger-ui/",
+            SpectacularSwaggerView.as_view(url_name="schema"),
+            name="swagger-ui",
+        ),
+        path(
+            "schema/redoc/",
+            SpectacularRedocView.as_view(url_name="schema"),
+            name="redoc",
+        ),
     ]

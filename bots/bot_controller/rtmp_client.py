@@ -1,10 +1,11 @@
 import subprocess
 
+
 class RTMPClient:
     def __init__(self, rtmp_url):
         """
         Initialize the RTMP client for streaming FLV data to an RTMP endpoint.
-        
+
         Args:
             rtmp_url (str): The RTMP endpoint URL
         """
@@ -20,12 +21,16 @@ class RTMPClient:
         # Configure FFmpeg command to copy the FLV stream directly
         ffmpeg_cmd = [
             "ffmpeg",
-            "-y",                # Overwrite output if needed
-            "-f", "flv",         # Input format is FLV
-            "-i", "pipe:0",      # Read from stdin
-            "-c", "copy",        # Copy both audio and video without re-encoding
-            "-f", "flv",         # Output format
-            self.rtmp_url        # RTMP destination
+            "-y",  # Overwrite output if needed
+            "-f",
+            "flv",  # Input format is FLV
+            "-i",
+            "pipe:0",  # Read from stdin
+            "-c",
+            "copy",  # Copy both audio and video without re-encoding
+            "-f",
+            "flv",  # Output format
+            self.rtmp_url,  # RTMP destination
         ]
 
         # Start FFmpeg process
@@ -35,7 +40,7 @@ class RTMPClient:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                bufsize=10**8
+                bufsize=10**8,
             )
             self.is_running = True
             print(f"FFmpeg RTMP client started with PID {self.ffmpeg_process.pid}")
@@ -47,10 +52,10 @@ class RTMPClient:
     def write_data(self, flv_data):
         """
         Write FLV data to the RTMP stream.
-        
+
         Args:
             flv_data (bytes): FLV formatted data containing audio and video
-        
+
         Returns:
             bool: True if data was written, False if failed
         """
@@ -73,7 +78,7 @@ class RTMPClient:
     def stop(self):
         """Stop the RTMP streaming process"""
         self.is_running = False
-        
+
         if self.ffmpeg_process:
             try:
                 self.ffmpeg_process.stdin.close()
@@ -86,5 +91,5 @@ class RTMPClient:
                     self.ffmpeg_process.kill()
                 except Exception:
                     pass
-            
+
             self.ffmpeg_process = None
