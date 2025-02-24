@@ -345,7 +345,7 @@ class WebSocketClient {
 
   
 
-  sendAudio(timestamp, audioData) {
+  sendAudio(timestamp, streamId, audioData) {
       if (this.ws.readyState !== WebSocket.OPEN) {
           console.error('WebSocket is not connected for audio send', this.ws.readyState);
           return;
@@ -358,7 +358,7 @@ class WebSocketClient {
 
       try {
           // Create final message: type (4 bytes) + timestamp (8 bytes) + audio data
-          const message = new Uint8Array(4 + 8 + audioData.buffer.byteLength);
+          const message = new Uint8Array(4 + 8 + 4 + audioData.buffer.byteLength);
           const dataView = new DataView(message.buffer);
           
           // Set message type (3 for AUDIO)
@@ -367,8 +367,11 @@ class WebSocketClient {
           // Set timestamp as BigInt64
           dataView.setBigInt64(4, BigInt(timestamp), true);
 
+          // Set streamId length and bytes
+          dataView.setInt32(12, streamId, true);
+
           // Copy audio data after type and timestamp
-          message.set(new Uint8Array(audioData.buffer), 12);
+          message.set(new Uint8Array(audioData.buffer), 16);
           
           // Send the binary message
           this.ws.send(message.buffer);
@@ -785,7 +788,7 @@ const handleVideoTrack = async (event) => {
     }
 
     // Add frame rate control variables
-    const targetFPS = 24;
+    const targetFPS = isScreenShare ? 5 : 15;
     const frameInterval = 1000 / targetFPS; // milliseconds between frames
     let lastFrameTime = 0;
 
@@ -886,6 +889,8 @@ const handleAudioTrack = async (event) => {
     const readable = processor.readable;
     const writable = generator.writable;
 
+    const firstStreamId = event.streams[0]?.id;
+
     // Transform stream to intercept frames
     const transformStream = new TransformStream({
         async transform(frame, controller) {
@@ -903,12 +908,29 @@ const handleAudioTrack = async (event) => {
                 // Copy the audio data
                 const numChannels = frame.numberOfChannels;
                 const numSamples = frame.numberOfFrames;
-                const audioData = new Float32Array(numChannels * numSamples);
+                const audioData = new Float32Array(numSamples);
                 
                 // Copy data from each channel
-                for (let channel = 0; channel < numChannels; channel++) {
-                    frame.copyTo(audioData.subarray(channel * numSamples, (channel + 1) * numSamples), 
-                              { planeIndex: channel });
+                // If multi-channel, average all channels together
+                if (numChannels > 1) {
+                    // Temporary buffer to hold each channel's data
+                    const channelData = new Float32Array(numSamples);
+                    
+                    // Sum all channels
+                    for (let channel = 0; channel < numChannels; channel++) {
+                        frame.copyTo(channelData, { planeIndex: channel });
+                        for (let i = 0; i < numSamples; i++) {
+                            audioData[i] += channelData[i];
+                        }
+                    }
+                    
+                    // Average by dividing by number of channels
+                    for (let i = 0; i < numSamples; i++) {
+                        audioData[i] /= numChannels;
+                    }
+                } else {
+                    // If already mono, just copy the data
+                    frame.copyTo(audioData, { planeIndex: 0 });
                 }
 
                 // console.log('frame', frame)
@@ -916,7 +938,8 @@ const handleAudioTrack = async (event) => {
 
                 // Check if audio format has changed
                 const currentFormat = {
-                    numberOfChannels: frame.numberOfChannels,
+                    numberOfChannels: 1,
+                    originalNumberOfChannels: frame.numberOfChannels,
                     numberOfFrames: frame.numberOfFrames,
                     sampleRate: frame.sampleRate,
                     format: frame.format,
@@ -934,13 +957,14 @@ const handleAudioTrack = async (event) => {
                 }
 
                 // If the audioData buffer is all zeros, then we don't want to send it
-                if (audioData.every(value => value === 0)) {
-                    return;
-                }
+                // Removing this since we implemented 3 audio sources in gstreamer pipeline
+                // if (audioData.every(value => value === 0)) {
+                //    return;
+                // }
 
                 // Send audio data through websocket
                 const currentTimeMicros = BigInt(Math.floor(performance.now() * 1000));
-                ws.sendAudio(currentTimeMicros, audioData);
+                ws.sendAudio(currentTimeMicros, firstStreamId, audioData);
 
                 // Pass through the original frame
                 controller.enqueue(frame);
@@ -1062,198 +1086,4 @@ new RTCInterceptor({
     }
 });
 
-async function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
 
-// We need to select a different audio input device in order to make bot audio output work
-// It's not clear why this is needed, it seems to re-initialize the internal audio tracks.
-// This is a brittle workaround, but we'll use it for now.
-async function selectDifferentAudioInputDevice() {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    ws.sendJson({
-        type: 'debug_message',
-        message: 'SelectDifferentAudioInputDevice - devices = ' + JSON.stringify(devices)
-    });
-
-    const audio_settings_element = window.document.querySelector('[aria-label="Audio settings"]');
-    if (audio_settings_element) {
-        audio_settings_element.click();
-    }
-    else {
-        console.error('SelectDifferentAudioInputDevice - Audio settings element not found');
-        ws.sendJson({
-            type: 'debug_message',
-            message: 'SelectDifferentAudioInputDevice - Audio settings element not found'
-        });
-        return;
-    }
-
-    await sleep(200);
-    
-    const micButton = window.document.querySelector('button[aria-label*="Microphone"]');
-    if (micButton) {
-        micButton.click();
-    }
-    else {
-        console.error('SelectDifferentAudioInputDevice - Microphone button not found');
-        ws.sendJson({
-            type: 'debug_message',
-            message: 'SelectDifferentAudioInputDevice - Microphone button not found'
-        });
-        return;
-    }
-
-    await sleep(200);
-
-    const microphoneMenu = window.document.querySelector('ul[aria-label="Device selection for the microphone"]');
-    
-    if (microphoneMenu) {
-        // Find the first li element that's a descendant
-        const outerLi = microphoneMenu.querySelector('li[role="none"]');
-        
-        if (outerLi) {
-            const numOptions = outerLi.querySelector('ul').childElementCount;
-
-            ws.sendJson({
-                type: 'debug_message',
-                message: 'SelectDifferentAudioInputDevice - Numer of Options for outerLi = ' + numOptions.toString(),
-                innerLi: outerLi.innerHTML.toString()
-            });
-
-            const innerLi = outerLi.querySelector('li:last-child');
-            if (innerLi) {
-                innerLi.click();
-                ws.sendJson({
-                    type: 'debug_message',
-                    message: 'SelectDifferentAudioInputDevice - Last child li element clicked'
-                });
-            }
-            else {
-                ws.sendJson({
-                    type: 'debug_message',
-                    message: 'SelectDifferentAudioInputDevice - Last child li element not found'
-                });
-            }
-        }
-    } else {
-        ws.sendJson({
-            type: 'debug_message',
-            message: 'SelectDifferentAudioInputDevice - Microphone device selection menu not found'
-        });
-    }
-}
-
-class AudioStreamHandler {
-    constructor() {
-        this.audioContext = null;
-        this.stream = null;
-        this.streamDestination = null;
-        this.originalGetUserMedia = navigator.mediaDevices.getUserMedia;
-        this.isPlaying = false;
-        this.selectedDifferentAudioInputDevice = false;
-    }
-
-    // Initialize Web Audio components
-    async init() {
-        try {
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            this.streamDestination = this.audioContext.createMediaStreamDestination();
-            this.stream = this.streamDestination.stream;
-            this.overrideGetUserMedia();
-        } catch (error) {
-            console.error('Initialization error:', error);
-            throw error;
-        }
-    }
-
-    // Override getUserMedia
-    overrideGetUserMedia() {
-        navigator.mediaDevices.getUserMedia = async () => {
-            console.log('getUserMedia called');
-
-            ws.sendJson({
-                type: 'debug_message',
-                message: 'getUserMedia called'
-            });
-
-            if (!this.stream) {
-                throw new Error('No audio stream available');
-            }
-            return this.stream;
-        };
-    }
-
-    // Play raw PCM audio data
-    async playPCM(pcmData, sampleRate) {
-        // console.log('playPCM called', pcmData, 'sampleRate', sampleRate);
-        if (!this.selectedDifferentAudioInputDevice) {
-            await selectDifferentAudioInputDevice();
-            this.selectedDifferentAudioInputDevice = true;
-        }
-
-        if (!this.audioContext) {
-            throw new Error('AudioContext not initialized');
-        }
-
-        // Always try to resume the context before playback
-        // console.log('AudioContext state:', this.audioContext.state);
-        if (this.audioContext.state === 'suspended') {
-            await this.audioContext.resume();
-            //console.log('AudioContext resumed');
-        }
-
-        // Convert Int16 to Float32
-        const audioData = (pcmData instanceof Int16Array) ? 
-            pcmData : 
-            new Int16Array(pcmData.buffer || pcmData);
-
-        // Convert Int16 to Float32
-        const floatData = new Float32Array(audioData.length);
-        for (let i = 0; i < audioData.length; i++) {
-            // Convert from Int16 (-32768 to 32767) to Float32 (-1.0 to 1.0)
-            floatData[i] = audioData[i] / 32768.0;
-        }
-
-        // Create audio buffer
-        const audioBuffer = this.audioContext.createBuffer(
-            1, // mono
-            floatData.length,
-            sampleRate
-        );
-
-        // Fill the buffer
-        audioBuffer.getChannelData(0).set(floatData);
-
-        // Create buffer source
-        const source = this.audioContext.createBufferSource();
-        source.buffer = audioBuffer;
-        
-        // Connect to stream destination
-        source.connect(this.streamDestination);
-        
-        // Start playback
-        source.start();
-        this.isPlaying = true;
-
-        // Return promise that resolves when playback completes
-        return new Promise((resolve) => {
-            source.onended = () => {
-                this.isPlaying = false;
-                resolve();
-            };
-        });
-    }
-}
-
-// Create and initialize as soon as possible
-const audioHandler = new AudioStreamHandler();
-audioHandler.init();
-
-const playAudio = (rawAudioData, sampleRate) => {
-    audioHandler.playPCM(rawAudioData, sampleRate).then(() => {
-        // console.log('Audio playback completed');
-    }).catch(error => {
-        console.error('Error playing audio:', error);
-    });
-}

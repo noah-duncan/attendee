@@ -1,5 +1,4 @@
 import dj_database_url
-
 from .base import *
 
 DEBUG = False
@@ -15,8 +14,9 @@ DATABASES = {
 }
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-SECURE_SSL_REDIRECT = True
-SECURE_HSTS_SECONDS = 60
+# Disabling these because it's enforced at the ingress level on GKE
+# SECURE_SSL_REDIRECT = True
+# SECURE_HSTS_SECONDS = 60
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 
@@ -39,3 +39,29 @@ if os.getenv("ERROR_REPORTS_RECEIVER_EMAIL_ADDRESS"):
     )
 
 SERVER_EMAIL = "noreply@mail.attendee.dev"
+
+# Needed on GKE
+CSRF_TRUSTED_ORIGINS = ['https://*.attendee.dev']
+
+# Log more stuff in staging
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
+
