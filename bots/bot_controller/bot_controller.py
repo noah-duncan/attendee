@@ -547,6 +547,7 @@ class BotController:
         if message.get("message") == BotAdapter.Messages.ADAPTER_REQUESTED_BOT_LEAVE_MEETING:
             print(f"Received message that adapter requested bot leave meeting reason={message.get('leave_reason')}")
 
+
             event_sub_type_for_reason = {
                 BotAdapter.LEAVE_REASON.AUTO_LEAVE_SILENCE: BotEventSubTypes.LEAVE_REQUESTED_AUTO_LEAVE_SILENCE,
                 BotAdapter.LEAVE_REASON.AUTO_LEAVE_ONLY_PARTICIPANT_IN_MEETING: BotEventSubTypes.LEAVE_REQUESTED_AUTO_LEAVE_ONLY_PARTICIPANT_IN_MEETING,
@@ -556,7 +557,11 @@ class BotController:
             BotEventManager.set_requested_bot_action_taken_at(self.bot_in_db)
             self.adapter.leave()
             return
-
+        
+        if self.bot_in_db.state == BotStates.FATAL_ERROR:
+            print("Bot is in FATAL_ERROR state.Bot cannot rejoin once removed.")
+            return
+        
         if message.get("message") == BotAdapter.Messages.MEETING_ENDED:
             print("Received message that meeting ended")
             self.flush_utterances()

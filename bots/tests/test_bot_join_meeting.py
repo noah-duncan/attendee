@@ -1930,3 +1930,52 @@ class TestBotJoinMeeting(TransactionTestCase):
 
         # Close the database connection since we're in a thread
         connection.close()
+
+
+    @patch('deepgram.DeepgramClient')
+    @patch('bots.models.BotEventManager.create_event')
+    @patch('bots.zoom_bot_adapter.zoom_bot_adapter.zoom', new_callable=create_mock_zoom_sdk)
+    @patch('bots.zoom_bot_adapter.zoom_bot_adapter.jwt')
+    def test_bot_in_fatal_error_does_not_create_meeting_ended_event(self, mock_create_event, MockDeepgramClient, mock_zoom_sdk_adapter,mock_jwt):
+         # Setup mock objects and bot state
+        bot = Bot.objects.create(state=BotStates.FATAL_ERROR, project=self.project)
+        controller = BotController(bot.id)
+        
+        # Set up the necessary mocks for Deepgram, Zoom SDK, etc.
+        MockDeepgramClient.return_value = create_mock_deepgram()
+        
+        # Create mock Zoom SDK instance
+        mock_zoom_sdk_instance = create_mock_zoom_sdk()
+        mock_zoom_sdk_adapter.return_value = mock_zoom_sdk_instance
+        # Mock JWT token generation
+        mock_jwt.encode.return_value = "fake_jwt_token"
+
+        # Capture logs
+        with self.assertLogs(level='INFO') as log:
+        # Simulate meeting ended message
+            message = {'message': BotAdapter.Messages.MEETING_ENDED}
+            controller.bot_in_db = bot
+            controller.individual_audio_input_manager = MagicMock()
+            controller.closed_caption_manager = MagicMock()
+            controller.cleanup = MagicMock()
+
+            # Call the method that handles the message (take_action_based_on_message_from_adapter)
+            controller.take_action_based_on_message_from_adapter(message)
+
+            # Assert no event was created for MEETING_ENDED
+            mock_create_event.assert_not_called()
+
+            # Check if the log contains the expected message
+            self.assertIn('INFO:root:Bot is in FATAL_ERROR state. Bot cannot rejoin once removed. End the meet for all and start meet again with same link', log.output)
+
+            # Verify that cleanup was called
+            controller.cleanup.assert_called_once()
+
+            # Ensure the bot's state remains as FATAL_ERROR
+            bot.refresh_from_db()
+            self.assertEqual(bot.state, BotStates.FATAL_ERROR)
+
+        # Verify expected SDK calls to ensure no meeting creation or interaction was attempted
+        mock_zoom_sdk_instance.InitSDK.assert_not_called()
+        mock_zoom_sdk_instance.CreateMeetingService.assert_not_called()
+        mock_zoom_sdk_instance.CreateAuthService.assert_not_called()
