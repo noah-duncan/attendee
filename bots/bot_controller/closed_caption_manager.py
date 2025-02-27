@@ -65,6 +65,7 @@ class ClosedCaptionManager:
                             "duration_ms": int((entry.modified_at - entry.created_at).total_seconds() * 1000),
                             "text": entry.caption_data.get("text", ""),
                             "source_uuid_suffix": f"{entry.caption_data['deviceId']}-{entry.caption_data['captionId']}",
+                            "sample_rate": None,
                         }
                     )
 

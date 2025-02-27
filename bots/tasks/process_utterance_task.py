@@ -4,17 +4,6 @@ from django.db import DatabaseError
 from bots.models import Credentials, RecordingManager, Utterance
 
 
-def convert_utterance_audio_blob_to_mp3(utterance):
-    from bots.utils import pcm_to_mp3
-
-    if utterance.audio_format == Utterance.AudioFormat.PCM:
-        mp3_data = pcm_to_mp3(utterance.audio_blob)
-        utterance.audio_blob = mp3_data
-        utterance.audio_format = Utterance.AudioFormat.MP3
-        utterance.save()
-        utterance.refresh_from_db()  # because of the .tobytes() issue
-
-
 @shared_task(
     bind=True,
     soft_time_limit=3600,
@@ -37,9 +26,6 @@ def process_utterance(self, utterance_id):
     recording = utterance.recording
     RecordingManager.set_recording_transcription_in_progress(recording)
 
-    # if utterance file format is pcm, convert to mp3
-    convert_utterance_audio_blob_to_mp3(utterance)
-
     if utterance.transcription is None:
         payload: FileSource = {
             "buffer": utterance.audio_blob.tobytes(),
@@ -50,6 +36,8 @@ def process_utterance(self, utterance_id):
             smart_format=True,
             language=recording.bot.deepgram_language(),
             detect_language=recording.bot.deepgram_detect_language(),
+            encoding="linear16",  # for 16-bit PCM
+            sample_rate=utterance.sample_rate,
         )
 
         deepgram_credentials_record = recording.bot.project.credentials.filter(credential_type=Credentials.CredentialTypes.DEEPGRAM).first()
@@ -64,6 +52,7 @@ def process_utterance(self, utterance_id):
 
         response = deepgram.listen.rest.v("1").transcribe_file(payload, options)
         utterance.transcription = json.loads(response.results.channels[0].alternatives[0].to_json())
+        utterance.audio_blob = b""  # set the binary field to empty byte string
         utterance.save()
 
     # If the recording is in a terminal state and there are no more utterances to transcribe, set the recording's transcription state to complete

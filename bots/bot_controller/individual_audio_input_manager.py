@@ -98,6 +98,7 @@ class IndividualAudioInputManager:
                         "audio_data": bytes(self.utterances[speaker_id]),
                         "timestamp_ms": int(self.first_nonsilent_audio_time[speaker_id].timestamp() * 1000),
                         "flush_reason": reason,
+                        "sample_rate": self.sample_rate,
                     }
                 )
             # Clear the buffer
