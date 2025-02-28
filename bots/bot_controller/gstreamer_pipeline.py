@@ -13,12 +13,27 @@ class GstreamerPipeline:
     OUTPUT_FORMAT_MP4 = "mp4"
     OUTPUT_FORMAT_WEBM = "webm"
 
-    def __init__(self, *, on_new_sample_callback, video_frame_size, audio_format, output_format, num_audio_sources):
+    SINK_TYPE_APPSINK = "appsink"
+    SINK_TYPE_FILE = "filesink"
+
+    def __init__(
+        self,
+        *,
+        on_new_sample_callback,
+        video_frame_size,
+        audio_format,
+        output_format,
+        num_audio_sources,
+        sink_type,
+        file_location=None,
+    ):
         self.on_new_sample_callback = on_new_sample_callback
         self.video_frame_size = video_frame_size
         self.audio_format = audio_format
         self.output_format = output_format
         self.num_audio_sources = num_audio_sources
+        self.sink_type = sink_type
+        self.file_location = file_location
 
         self.pipeline = None
         self.appsrc = None
@@ -55,9 +70,16 @@ class GstreamerPipeline:
         elif self.output_format == self.OUTPUT_FORMAT_FLV:
             muxer_string = "h264parse ! flvmux name=muxer streamable=true"
         elif self.output_format == self.OUTPUT_FORMAT_WEBM:
-            muxer_string = "h264parse ! matroskamux name=muxer streamable=true"
+            muxer_string = "h264parse ! matroskamux name=muxer"
         else:
             raise ValueError(f"Invalid output format: {self.output_format}")
+
+        if self.sink_type == self.SINK_TYPE_APPSINK:
+            sink_string = "appsink name=sink emit-signals=true sync=false drop=false "
+        elif self.sink_type == self.SINK_TYPE_FILE:
+            sink_string = f"filesink location={self.file_location} name=sink sync=false "
+        else:
+            raise ValueError(f"Invalid sink type: {self.sink_type}")
 
         if self.num_audio_sources == 1:
             # fmt: off
@@ -106,7 +128,7 @@ class GstreamerPipeline:
             "queue name=q2 max-size-buffers=5000 max-size-bytes=500000000 max-size-time=0 ! "  # q2 can contain 100mb of video before it drops
             "x264enc tune=zerolatency speed-preset=ultrafast ! "
             "queue name=q3 max-size-buffers=1000 max-size-bytes=100000000 max-size-time=0 ! "
-            f"{muxer_string} ! queue name=q4 ! appsink name=sink emit-signals=true sync=false drop=false "
+            f"{muxer_string} ! queue name=q4 ! {sink_string} "
             f"{audio_source_string} "
             "muxer. "
         )
@@ -143,8 +165,9 @@ class GstreamerPipeline:
         bus.connect("message", self.on_pipeline_message)
 
         # Connect to the sink element
-        sink = self.pipeline.get_by_name("sink")
-        sink.connect("new-sample", self.on_new_sample_from_appsink)
+        if self.sink_type == self.SINK_TYPE_APPSINK:
+            sink = self.pipeline.get_by_name("sink")
+            sink.connect("new-sample", self.on_new_sample_from_appsink)
 
         # Start the pipeline
         self.pipeline.set_state(Gst.State.PLAYING)

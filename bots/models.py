@@ -82,9 +82,10 @@ class BotStates(models.IntegerChoices):
     JOINED_NOT_RECORDING = 3, "Joined - Not Recording"
     JOINED_RECORDING = 4, "Joined - Recording"
     LEAVING = 5, "Leaving"
-    ENDED = 6, "Ended"
+    POST_PROCESSING = 6, "Post Processing"
     FATAL_ERROR = 7, "Fatal Error"
     WAITING_ROOM = 8, "Waiting Room"
+    ENDED = 9, "Ended"
 
     @classmethod
     def state_to_api_code(cls, value):
@@ -95,9 +96,10 @@ class BotStates(models.IntegerChoices):
             cls.JOINED_NOT_RECORDING: "joined_not_recording",
             cls.JOINED_RECORDING: "joined_recording",
             cls.LEAVING: "leaving",
-            cls.ENDED: "ended",
+            cls.POST_PROCESSING: "post_processing",
             cls.FATAL_ERROR: "fatal_error",
             cls.WAITING_ROOM: "waiting_room",
+            cls.ENDED: "ended",
         }
         return mapping.get(value)
 
@@ -175,6 +177,7 @@ class BotEventTypes(models.IntegerChoices):
     FATAL_ERROR = 7, "Bot Encountered Fatal error"
     LEAVE_REQUESTED = 8, "Bot requested to leave meeting"
     COULD_NOT_JOIN = 9, "Bot could not join meeting"
+    POST_PROCESSING_COMPLETED = 10, "Post Processing Completed"
 
     @classmethod
     def type_to_api_code(cls, value):
@@ -189,6 +192,7 @@ class BotEventTypes(models.IntegerChoices):
             cls.FATAL_ERROR: "fatal_error",
             cls.LEAVE_REQUESTED: "leave_requested",
             cls.COULD_NOT_JOIN: "could_not_join_meeting",
+            cls.POST_PROCESSING_COMPLETED: "post_processing_completed",
         }
         return mapping.get(value)
 
@@ -339,7 +343,7 @@ class BotEventManager:
                 BotStates.JOINING,
                 BotStates.LEAVING,
             ],
-            "to": BotStates.ENDED,
+            "to": BotStates.POST_PROCESSING,
         },
         BotEventTypes.LEAVE_REQUESTED: {
             "from": [
@@ -352,6 +356,10 @@ class BotEventManager:
         },
         BotEventTypes.BOT_LEFT_MEETING: {
             "from": BotStates.LEAVING,
+            "to": BotStates.POST_PROCESSING,
+        },
+        BotEventTypes.POST_PROCESSING_COMPLETED: {
+            "from": BotStates.POST_PROCESSING,
             "to": BotStates.ENDED,
         },
     }

@@ -27,13 +27,13 @@ from bots.models import (
 from .mock_data import MockF32AudioFrame
 
 
-def create_mock_streaming_uploader():
-    mock_streaming_uploader = MagicMock()
-    mock_streaming_uploader.upload_part.return_value = None
-    mock_streaming_uploader.complete_upload.return_value = None
-    mock_streaming_uploader.start_upload.return_value = None
-    mock_streaming_uploader.key = "test-recording-key"
-    return mock_streaming_uploader
+def create_mock_file_uploader():
+    mock_file_uploader = MagicMock()
+    mock_file_uploader.upload_file.return_value = None
+    mock_file_uploader.wait_for_upload.return_value = None
+    mock_file_uploader.delete_file.return_value = None
+    mock_file_uploader.key = "test-recording-key"
+    return mock_file_uploader
 
 
 def create_mock_google_meet_driver():
@@ -87,16 +87,16 @@ class TestGoogleMeetBot(TransactionTestCase):
 
     @patch("bots.google_meet_bot_adapter.google_meet_bot_adapter.Display")
     @patch("bots.google_meet_bot_adapter.google_meet_bot_adapter.uc.Chrome")
-    @patch("bots.bot_controller.bot_controller.StreamingUploader")
+    @patch("bots.bot_controller.bot_controller.FileUploader")
     def test_google_meet_bot_can_join_meeting_and_record_audio_and_video(
         self,
-        MockStreamingUploader,
+        MockFileUploader,
         MockChromeDriver,
         MockDisplay,
     ):
         # Configure the mock uploader
-        mock_uploader = create_mock_streaming_uploader()
-        MockStreamingUploader.return_value = mock_uploader
+        mock_uploader = create_mock_file_uploader()
+        MockFileUploader.return_value = mock_uploader
 
         # Mock the Chrome driver
         mock_driver = create_mock_google_meet_driver()
@@ -170,7 +170,7 @@ class TestGoogleMeetBot(TransactionTestCase):
 
         # Verify bot events in sequence
         bot_events = self.bot.bot_events.all()
-        self.assertEqual(len(bot_events), 4)  # We expect 4 events in total
+        self.assertEqual(len(bot_events), 5)  # We expect 5 events in total
 
         # Verify join_requested_event (Event 1)
         join_requested_event = bot_events[0]
@@ -197,7 +197,13 @@ class TestGoogleMeetBot(TransactionTestCase):
         meeting_ended_event = bot_events[3]
         self.assertEqual(meeting_ended_event.event_type, BotEventTypes.MEETING_ENDED)
         self.assertEqual(meeting_ended_event.old_state, BotStates.JOINED_RECORDING)
-        self.assertEqual(meeting_ended_event.new_state, BotStates.ENDED)
+        self.assertEqual(meeting_ended_event.new_state, BotStates.POST_PROCESSING)
+
+        # Verify post_processing_completed_event (Event 5)
+        post_processing_completed_event = bot_events[4]
+        self.assertEqual(post_processing_completed_event.event_type, BotEventTypes.POST_PROCESSING_COMPLETED)
+        self.assertEqual(post_processing_completed_event.old_state, BotStates.POST_PROCESSING)
+        self.assertEqual(post_processing_completed_event.new_state, BotStates.ENDED)
 
         # Verify that the recording was finished
         self.recording.refresh_from_db()
@@ -221,11 +227,11 @@ class TestGoogleMeetBot(TransactionTestCase):
         # Verify first_buffer_timestamp_ms_offset was set correctly
         self.assertEqual(controller.adapter.get_first_buffer_timestamp_ms_offset(), 12345)
 
-        # Verify streaming uploader was used
-        mock_uploader.start_upload.assert_called_once()
-        self.assertGreater(mock_uploader.upload_part.call_count, 0)
-        mock_uploader.complete_upload.assert_called_once()
-
+        # Verify file uploader was used
+        mock_uploader.upload_file.assert_called_once()
+        self.assertGreater(mock_uploader.upload_file.call_count, 0)
+        mock_uploader.wait_for_upload.assert_called_once()
+        mock_uploader.delete_file.assert_called_once()
         # Cleanup
         controller.cleanup()
         bot_thread.join(timeout=5)
