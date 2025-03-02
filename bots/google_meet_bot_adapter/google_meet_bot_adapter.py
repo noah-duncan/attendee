@@ -371,6 +371,7 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
         options = uc.ChromeOptions()
 
         options.add_argument("--use-fake-ui-for-media-stream")
+        options.add_argument("--use-fake-device-for-media-stream")
         options.add_argument("--window-size=1920x1080")
         options.add_argument("--no-sandbox")
         # options.add_argument('--headless=new')
@@ -570,4 +571,18 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
                 return
 
     def send_raw_audio(self, bytes, sample_rate):
-        print("send_raw_audio not supported in google meet bots")
+        """
+        Sends raw audio bytes to the Google Meet call.
+        
+        :param bytes: Raw audio bytes in PCM format
+        :param sample_rate: Sample rate of the audio in Hz
+        """
+        if not self.driver:
+            print("Cannot send audio - driver not initialized")
+            return
+
+        # Convert bytes to Int16Array for JavaScript
+        audio_data = np.frombuffer(bytes, dtype=np.int16).tolist()
+        
+        # Call the JavaScript function to enqueue the PCM chunk
+        self.driver.execute_script(f"window.enqueuePCMChunk({audio_data})")
