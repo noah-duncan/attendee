@@ -20,7 +20,7 @@ from bots.bot_controller.automatic_leave_configuration import AutomaticLeaveConf
 
 
 def generate_jwt(client_id, client_secret):
-    iat = datetime.utcnow()
+    iat = datetime.now(datetime.UTC)
     exp = iat + timedelta(hours=24)
 
     payload = {
@@ -472,7 +472,7 @@ class ZoomBotAdapter(BotAdapter):
         if node_id == self.my_participant_id:
             return
 
-        current_time = datetime.utcnow()
+        current_time = datetime.now(datetime.UTC)
         self.last_audio_received_at = time.time()
         self.add_audio_chunk_callback(node_id, current_time, data.GetBuffer())
 

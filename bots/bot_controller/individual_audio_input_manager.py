@@ -38,14 +38,14 @@ class IndividualAudioInputManager:
             self.process_chunk(speaker_id, chunk_time, chunk_bytes)
 
         for speaker_id in list(self.first_nonsilent_audio_time.keys()):
-            self.process_chunk(speaker_id, datetime.utcnow(), None)
+            self.process_chunk(speaker_id, datetime.now(datetime.UTC), None)
 
     # When the meeting ends, we need to flush all utterances. Do this by pretending that we received a chunk of silence at the end of the meeting.
     def flush_utterances(self):
         for speaker_id in list(self.first_nonsilent_audio_time.keys()):
             self.process_chunk(
                 speaker_id,
-                datetime.utcnow() + timedelta(seconds=self.SILENCE_DURATION_LIMIT + 1),
+                datetime.now(datetime.UTC) + timedelta(seconds=self.SILENCE_DURATION_LIMIT + 1),
                 None,
             )
 

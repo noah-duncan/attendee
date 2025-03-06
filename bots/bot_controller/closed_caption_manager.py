@@ -5,24 +5,25 @@ from typing import Dict, Optional
 class CaptionEntry:
     def __init__(self, caption_data: dict):
         self.caption_data = caption_data
-        self.created_at = datetime.utcnow()
+        self.created_at = datetime.now(datetime.UTC)
         self.modified_at = self.created_at
         self.last_upsert_to_db_at: Optional[datetime] = None
 
     def update(self, caption_data: dict):
         self.caption_data = caption_data
-        self.modified_at = datetime.utcnow()
+        self.modified_at = datetime.now(datetime.UTC)
 
     def should_upsert_to_db(self, should_flush=False) -> bool:
         # If never upserted to db, and it's been at least a few seconds since creation
         if not self.last_upsert_to_db_at:
-            return ((datetime.utcnow() - self.created_at) > timedelta(seconds=15)) or should_flush
+            return ((datetime.now(datetime.UTC) - self.created_at) > timedelta(seconds=15)) or should_flush
 
         # If modified since last upsert to db and hasn't been updated recently
-        return self.modified_at > self.last_upsert_to_db_at and (((datetime.utcnow() - self.modified_at) > timedelta(seconds=15)) or should_flush)
+        return (self.modified_at > self.last_upsert_to_db_at and 
+                ((datetime.now(datetime.UTC) - self.modified_at) > timedelta(seconds=15) or should_flush))
 
     def mark_upserted_to_db(self):
-        self.last_upsert_to_db_at = datetime.utcnow()
+        self.last_upsert_to_db_at = datetime.now(datetime.UTC)
 
 
 class ClosedCaptionManager:
@@ -73,5 +74,5 @@ class ClosedCaptionManager:
                     entry.mark_upserted_to_db()
 
                     # If this caption hasn't been modified in a while, remove it from memory
-                    if (datetime.utcnow() - entry.modified_at) > timedelta(seconds=60):
+                    if (datetime.now(datetime.UTC) - entry.modified_at) > timedelta(seconds=60):
                         del self.captions[key]
