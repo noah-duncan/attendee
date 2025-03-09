@@ -2,16 +2,19 @@ import uuid
 
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.core.exceptions import ValidationError
+from django.db import transaction
 
 
 class Organization(models.Model):
     name = models.CharField(max_length=255)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # These represent hundredths of a credit
+    centicredits = models.IntegerField(default=500, null=False)
 
     def __str__(self):
         return self.name
-
 
 class User(AbstractUser):
     organization = models.ForeignKey(Organization, on_delete=models.PROTECT, null=False, related_name="users")

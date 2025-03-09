@@ -2,6 +2,8 @@ import hashlib
 import json
 import random
 import string
+import math
+import os
 
 from concurrency.exceptions import RecordModifiedError
 from concurrency.fields import IntegerVersionField
@@ -12,11 +14,9 @@ from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.crypto import get_random_string
+from django.db.utils import IntegrityError
 
 from accounts.models import Organization
-
-# Create your models here.
-
 
 class Project(models.Model):
     name = models.CharField(max_length=255)
@@ -155,6 +155,18 @@ class Bot(models.Model):
                     raise
                 continue
 
+    def centicredits_consumed(self) -> int:
+        if self.first_heartbeat_timestamp is None or self.last_heartbeat_timestamp is None:
+            return 0
+        if self.last_heartbeat_timestamp < self.first_heartbeat_timestamp:
+            return 0
+        # We're adding 60 seconds because the heartbeat is only set every 60 seconds    
+        seconds_active = 60 + self.last_heartbeat_timestamp - self.first_heartbeat_timestamp
+        hours_active = seconds_active / 3600
+        # The rate is 1 credit per hour
+        centicredits_active = hours_active * 100
+        return math.ceil(centicredits_active)
+
     def deepgram_language(self):
         return self.settings.get("transcription_settings", {}).get("deepgram", {}).get("language", None)
 
@@ -196,6 +208,99 @@ class Bot(models.Model):
     def k8s_pod_name(self):
         return f"bot-pod-{self.id}-{self.object_id}".lower().replace("_", "-")
 
+class CreditTransaction(models.Model):
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT, null=False, related_name="credit_transactions")
+    created_at = models.DateTimeField(auto_now_add=True)
+    centicredits_before = models.IntegerField(null=False)
+    centicredits_after = models.IntegerField(null=False)
+    centicredits_delta = models.IntegerField(null=False)
+    parent_transaction = models.ForeignKey("self", on_delete=models.PROTECT, null=True, related_name="child_transactions")
+    bot = models.ForeignKey(Bot, on_delete=models.PROTECT, null=True, related_name="credit_transactions")
+    description = models.TextField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['parent_transaction'],
+                name='unique_child_transaction',
+                condition=models.Q(parent_transaction__isnull=False)
+            ),
+            models.UniqueConstraint(
+                fields=['organization'],
+                name='unique_root_transaction',
+                condition=models.Q(parent_transaction__isnull=True)
+            ),
+            models.UniqueConstraint(
+                fields=['bot'],
+                name='unique_bot_transaction',
+                condition=models.Q(bot__isnull=False)
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.organization.name} - {self.centicredits_delta}"
+
+class CreditTransactionManager:
+    @classmethod
+    def create_transaction(cls, organization: Organization, centicredits_delta: int, bot: Bot = None, description: str = None) -> CreditTransaction:
+        """
+        Creates a credit transaction for an organization. If no root transaction exists,
+        creates one first. Otherwise creates a child transaction.
+        
+        Args:
+            organization: The Organization instance
+            centicredits_delta: The change in credits (positive for additions, negative for deductions)
+            
+        Returns:
+            CreditTransaction instance
+            
+        Raises:
+            ValidationError: If the transaction would result in negative credits
+            RuntimeError: If max retries exceeded
+        """
+        max_retries = 10
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                with transaction.atomic():
+                    # Refresh org state from DB
+                    organization.refresh_from_db()
+                    
+                    # Calculate new credit balance
+                    new_balance = organization.centicredits + centicredits_delta
+                    
+                    # Don't allow negative balances
+                    if new_balance < 0:
+                        raise ValidationError("Insufficient credits for this transaction")
+                    
+                    # Find the leaf transaction (one with no child transactions)
+                    leaf_transaction = CreditTransaction.objects.filter(
+                        organization=organization,
+                        child_transactions__isnull=True
+                    ).first()
+                    
+                    credit_transaction = CreditTransaction.objects.create(
+                            organization=organization,
+                            centicredits_before=organization.centicredits,
+                            centicredits_after=new_balance,
+                            centicredits_delta=centicredits_delta,
+                            parent_transaction=leaf_transaction,
+                            bot=bot,
+                            description=description,
+                        )
+
+                    # Update organization's credit balance
+                    organization.centicredits = new_balance
+                    organization.save()
+                    
+                    return credit_transaction
+                    
+            except IntegrityError:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    raise RuntimeError("Max retries exceeded while attempting to create credit transaction")
+                continue
 
 class BotEventTypes(models.IntegerChoices):
     BOT_PUT_IN_WAITING_ROOM = 1, "Bot Put in Waiting Room"
@@ -525,7 +630,15 @@ class BotEventManager:
                         for recording in in_progress_recordings:
                             RecordingManager.set_recording_complete(recording)
 
-                        # At this point, we'll want to create a final charge for the current heartbeat
+                        if os.getenv("CHARGE_CREDITS_FOR_BOTS") == "true":
+                            centicredits_consumed = bot.centicredits_consumed()
+                            if centicredits_consumed > 0:
+                                CreditTransactionManager.create_transaction(
+                                    organization=bot.project.organization,
+                                    centicredits_delta=-centicredits_consumed,
+                                    bot=bot,
+                                    description=f"For bot {bot.object_id}",
+                                )
 
                     return event
 
