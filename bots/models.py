@@ -1040,3 +1040,56 @@ class BotDebugScreenshot(models.Model):
 
     def __str__(self):
         return f"Debug Screenshot {self.object_id} for event {self.bot_event}"
+
+class WebhookSubscription(models.Model):
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="webhook_subscriptions")
+    url = models.URLField()
+    events = models.JSONField(default=list)
+    secret = models.ForeignKey(WebhookSecret, on_delete=models.PROTECT, related_name="webhook_subscriptions")
+    is_active = models.BooleanField(default=True)
+    reputation = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+class WebhookDeliveryAttempt(models.Model):
+    webhook_subscription = models.ForeignKey(WebhookSubscription, on_delete=models.CASCADE, related_name="webhookdelivery_attempts")
+    attempt_count = models.IntegerField(default=0)
+    event_type = models.CharField(max_length=255)
+    bot = models.ForeignKey(Bot, on_delete=models.SET_NULL, nullable=True related_name="webhook_delivery_attempts")
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    succeeded_at = models.DateTimeField(null=True, blank=True)
+    payload = models.JSONField(default=dict)
+    response_body_list = models.JSONField(default=list)
+    idempotency_key = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
+    status = models.IntegerField(choices=WebhookDeliveryAttemptStatus.choices, default=WebhookDeliveryAttemptStatus.PENDING, null=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+class WebhookDeliveryAttemptStatus(models.IntegerChoices):
+    PENDING = 1, "Pending"
+    SUCCESS = 2, "Success"
+    FAILURE = 3, "Failure"
+
+class WebhookSecret(models.Model):
+    _secret = models.BinaryField(
+        null=True,
+        editable=False,  # Prevents editing through admin/forms
+    )
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="webhook_secrets")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def set_secret(self, secret):
+        """Encrypt and save secret"""
+        f = Fernet(settings.CREDENTIALS_ENCRYPTION_KEY)
+        self._secret = f.encrypt(secret.encode())
+        self.save()
+
+    def get_secret(self):
+        """Decrypt and return secret"""
+        if not self._secret:
+            return None
+        f = Fernet(settings.CREDENTIALS_ENCRYPTION_KEY)
+        decrypted_data = f.decrypt(bytes(self._secret))
+        return json.loads(decrypted_data.decode())
+    
