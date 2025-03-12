@@ -1081,15 +1081,26 @@ class WebhookSecret(models.Model):
 
     def set_secret(self, secret):
         """Encrypt and save secret"""
+        if not secret:
+            raise ValueError("Secret cannot be empty")
+            
         f = Fernet(settings.CREDENTIALS_ENCRYPTION_KEY)
-        self._secret = f.encrypt(secret.encode())
+        self._secret = f.encrypt(secret.encode('utf-8'))
         self.save()
 
     def get_secret(self):
         """Decrypt and return secret"""
         if not self._secret:
             return None
-        f = Fernet(settings.CREDENTIALS_ENCRYPTION_KEY)
-        decrypted_data = f.decrypt(bytes(self._secret))
-        return json.loads(decrypted_data.decode())
+        try:
+            f = Fernet(settings.CREDENTIALS_ENCRYPTION_KEY)
+            decrypted_data = f.decrypt(bytes(self._secret))
+            return decrypted_data.decode('utf-8')
+        except (InvalidToken, ValueError) as e:
+            logger.error(f"Failed to decrypt webhook secret (ID: {self.id}): {e}")
+            return None
     
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["project"], name="unique_webhook_secret_per_project")
+        ]
