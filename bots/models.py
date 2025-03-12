@@ -1041,35 +1041,6 @@ class BotDebugScreenshot(models.Model):
     def __str__(self):
         return f"Debug Screenshot {self.object_id} for event {self.bot_event}"
 
-class WebhookSubscription(models.Model):
-    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="webhook_subscriptions")
-    url = models.URLField()
-    events = models.JSONField(default=list)
-    secret = models.ForeignKey(WebhookSecret, on_delete=models.PROTECT, related_name="webhook_subscriptions")
-    is_active = models.BooleanField(default=True)
-    reputation = models.IntegerField(default=0)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-class WebhookDeliveryAttempt(models.Model):
-    webhook_subscription = models.ForeignKey(WebhookSubscription, on_delete=models.CASCADE, related_name="webhookdelivery_attempts")
-    attempt_count = models.IntegerField(default=0)
-    event_type = models.CharField(max_length=255)
-    bot = models.ForeignKey(Bot, on_delete=models.SET_NULL, nullable=True related_name="webhook_delivery_attempts")
-    last_attempt_at = models.DateTimeField(null=True, blank=True)
-    succeeded_at = models.DateTimeField(null=True, blank=True)
-    payload = models.JSONField(default=dict)
-    response_body_list = models.JSONField(default=list)
-    idempotency_key = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
-    status = models.IntegerField(choices=WebhookDeliveryAttemptStatus.choices, default=WebhookDeliveryAttemptStatus.PENDING, null=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-class WebhookDeliveryAttemptStatus(models.IntegerChoices):
-    PENDING = 1, "Pending"
-    SUCCESS = 2, "Success"
-    FAILURE = 3, "Failure"
-
 class WebhookSecret(models.Model):
     _secret = models.BinaryField(
         null=True,
@@ -1085,7 +1056,8 @@ class WebhookSecret(models.Model):
             raise ValueError("Secret cannot be empty")
             
         f = Fernet(settings.CREDENTIALS_ENCRYPTION_KEY)
-        self._secret = f.encrypt(secret.encode('utf-8'))
+        print(f"SECRET: {secret}")
+        self._secret = f.encrypt(secret)
         self.save()
 
     def get_secret(self):
@@ -1095,7 +1067,7 @@ class WebhookSecret(models.Model):
         try:
             f = Fernet(settings.CREDENTIALS_ENCRYPTION_KEY)
             decrypted_data = f.decrypt(bytes(self._secret))
-            return decrypted_data.decode('utf-8')
+            return decrypted_data
         except (InvalidToken, ValueError) as e:
             logger.error(f"Failed to decrypt webhook secret (ID: {self.id}): {e}")
             return None
@@ -1104,3 +1076,38 @@ class WebhookSecret(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["project"], name="unique_webhook_secret_per_project")
         ]
+
+class WebhookEventTypes(models.IntegerChoices):
+    BOT_EVENTS = 1, "Bot Events"
+
+class WebhookSubscription(models.Model):
+    def default_events():
+        return [WebhookEventTypes.BOT_EVENTS]
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="webhook_subscriptions")
+    url = models.URLField()
+    events = models.JSONField(default=default_events)
+    secret = models.ForeignKey(WebhookSecret, on_delete=models.PROTECT, related_name="webhook_subscriptions")
+    is_active = models.BooleanField(default=True)
+    reputation = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+class WebhookDeliveryAttemptStatus(models.IntegerChoices):
+    PENDING = 1, "Pending"
+    SUCCESS = 2, "Success"
+    FAILURE = 3, "Failure"
+
+class WebhookDeliveryAttempt(models.Model):
+    webhook_subscription = models.ForeignKey(WebhookSubscription, on_delete=models.CASCADE, related_name="webhookdelivery_attempts")
+    attempt_count = models.IntegerField(default=0)
+    event_type = models.CharField(max_length=255)
+    bot = models.ForeignKey(Bot, on_delete=models.SET_NULL, null=True, related_name="webhook_delivery_attempts")
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    succeeded_at = models.DateTimeField(null=True, blank=True)
+    payload = models.JSONField(default=dict)
+    response_body_list = models.JSONField(default=list)
+    idempotency_key = models.UUIDField(unique=True, editable=False)
+    status = models.IntegerField(choices=WebhookDeliveryAttemptStatus.choices, default=WebhookDeliveryAttemptStatus.PENDING, null=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
