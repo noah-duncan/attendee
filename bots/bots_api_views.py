@@ -706,8 +706,6 @@ class WebhookSubscriptionView(APIView):
                 project=request.auth.project
             )
             webhook_secret.set_secret(secrets.token_bytes(32))
-        
-        print(f"THIS IS THE WEBHOOK SECRET: {webhook_secret.get_secret()}")
 
         # Create the webhook subscription
         webhook_subscription = WebhookSubscription.objects.create(
