@@ -15,7 +15,7 @@ def trigger_webhook(webhook_event_type, bot, payload):
     from bots.models import WebhookSubscription, WebhookDeliveryAttempt
     
     subscriptions = WebhookSubscription.objects.filter(events__contains=[webhook_event_type], is_active=True)
-    
+    logger.info(f"Triggering webhook for event {webhook_event_type} with {len(subscriptions)} subscriptions")
     delivery_attempts = []
     for subscription in subscriptions:
         # Create a webhook delivery attempt record
@@ -28,7 +28,7 @@ def trigger_webhook(webhook_event_type, bot, payload):
         )
         delivery_attempts.append(delivery_attempt)
 
-        from bots.tasks import deliver_webhook
+        from bots.tasks.deliver_webhook_task import deliver_webhook
         deliver_webhook.delay(delivery_attempt.id)
 
     return len(delivery_attempts)
@@ -49,7 +49,7 @@ def sign_payload(payload, secret):
     
     # Create the signature
     signature = hmac.new(
-        secret.encode('utf-8'),
+        secret,
         payload_json.encode('utf-8'),
         hashlib.sha256
     ).digest()

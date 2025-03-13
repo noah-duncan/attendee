@@ -4,14 +4,13 @@ import requests
 import logging
 from celery import shared_task
 from django.utils import timezone
-from bots.models import WebhookDeliveryAttempt
-from bots.utils import sign_payload
+from bots.models import WebhookDeliveryAttempt, WebhookDeliveryAttemptStatus
+from bots.webhook_utils import sign_payload
 
 logger = logging.getLogger(__name__)
 
 @shared_task(
     bind=True, 
-    max_retries=None,
     retry_backoff=True,  # Enable exponential backoff
     max_retries=5,
 )
@@ -25,7 +24,7 @@ def deliver_webhook(self, delivery_id):
         logger.error(f"Webhook delivery attempt {delivery_id} not found")
         return
     
-    subscription = delivery.subscription
+    subscription = delivery.webhook_subscription
     
     # If the subscription is no longer active, mark as failed and return
     if not subscription.is_active:
@@ -37,13 +36,13 @@ def deliver_webhook(self, delivery_id):
     # Prepare the webhook payload
     webhook_data = {
         'id': str(delivery.id),
-        'event': delivery.event_type,
+        'event': delivery.webhook_event_type,
         'created': delivery.created_at.isoformat(),
         'data': delivery.payload
     }
     
     # Sign the payload
-    signature = sign_payload(webhook_data, subscription.secret)
+    signature = sign_payload(webhook_data, subscription.secret.get_secret())
     
     # Increment attempt counter
     delivery.attempt_count += 1
@@ -90,5 +89,5 @@ def deliver_webhook(self, delivery_id):
         logger.error(
             f"Webhook delivery failed after {delivery.attempt_count} attempts. "
             f"Webhook ID: {delivery.id}, URL: {subscription.url}, "
-            f"Event: {delivery.event_type}, Status: {delivery.status}"
+            f"Event: {delivery.webhook_event_type}, Status: {delivery.status}"
         )

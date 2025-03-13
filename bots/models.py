@@ -14,7 +14,7 @@ from django.utils import timezone
 from django.utils.crypto import get_random_string
 
 from accounts.models import Organization
-from bots.webhook_handlers import trigger_webhook
+from bots.webhook_utils import trigger_webhook
 # Create your models here.
 
 
@@ -1106,6 +1106,7 @@ class WebhookSubscription(models.Model):
     reputation = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
 class WebhookDeliveryAttemptStatus(models.IntegerChoices):
     PENDING = 1, "Pending"
     SUCCESS = 2, "Success"
@@ -1114,7 +1115,7 @@ class WebhookDeliveryAttemptStatus(models.IntegerChoices):
 class WebhookDeliveryAttempt(models.Model):
     webhook_subscription = models.ForeignKey(WebhookSubscription, on_delete=models.CASCADE, related_name="webhookdelivery_attempts")
     attempt_count = models.IntegerField(default=0)
-    webhook_event_type = models.IntegerField(choices=WebhookEventTypes.choices, null=False)
+    webhook_event_type = models.IntegerField(choices=WebhookEventTypes.choices, default=WebhookEventTypes.BOT_EVENTS, null=False)
     bot = models.ForeignKey(Bot, on_delete=models.SET_NULL, null=True, related_name="webhook_delivery_attempts")
     last_attempt_at = models.DateTimeField(null=True, blank=True)
     succeeded_at = models.DateTimeField(null=True, blank=True)
