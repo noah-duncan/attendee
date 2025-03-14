@@ -510,7 +510,7 @@ class BotEventManager:
 
                     # Trigger webhook for this event
                     trigger_webhook(
-                        webhook_event_type=WebhookEventTypes.BOT_STATUS_CHANGE,
+                        webhook_event_type=WebhookTriggerTypes.BOT_STATE_CHANGE,
                         bot=bot,
                         payload={
                             "event_type": BotEventTypes.type_to_api_code(event_type),
@@ -520,7 +520,6 @@ class BotEventManager:
                             "created_at": event.created_at.isoformat()
                         }
                     )
-                    # logger.info(f"Triggered {webhooks_triggered} webhooks for event {event_type}")
 
                     # If we moved to the recording state
                     if new_state == BotStates.JOINED_RECORDING:
@@ -1091,20 +1090,20 @@ class WebhookSecret(models.Model):
             models.UniqueConstraint(fields=["project"], name="unique_webhook_secret_per_project")
         ]
 
-class WebhookEventTypes(models.IntegerChoices):
-    BOT_STATUS_CHANGE = 1, "Bot Status Change"
+class WebhookTriggerTypes(models.IntegerChoices):
+    BOT_STATE_CHANGE = 1, "Bot State Change"
     # add other event types here
 
     @classmethod
-    def event_type_to_api_code(cls, value):
+    def trigger_type_to_api_code(cls, value):
         mapping = {
-            cls.BOT_STATUS_CHANGE: "bot_status_change",
+            cls.BOT_STATE_CHANGE: "bot.state_change",
         }
         return mapping.get(value)
 
 class WebhookSubscription(models.Model):
     def default_events():
-        return [WebhookEventTypes.BOT_STATUS_CHANGE]
+        return [WebhookTriggerTypes.BOT_STATE_CHANGE]
 
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="webhook_subscriptions")
     url = models.URLField()
@@ -1122,7 +1121,7 @@ class WebhookDeliveryAttemptStatus(models.IntegerChoices):
 
 class WebhookDeliveryAttempt(models.Model):
     webhook_subscription = models.ForeignKey(WebhookSubscription, on_delete=models.CASCADE, related_name="webhookdelivery_attempts")
-    webhook_event_type = models.IntegerField(choices=WebhookEventTypes.choices, default=WebhookEventTypes.BOT_STATUS_CHANGE, null=False)
+    webhook_event_type = models.IntegerField(choices=WebhookTriggerTypes.choices, default=WebhookTriggerTypes.BOT_STATE_CHANGE, null=False)
     idempotency_key = models.UUIDField(unique=True, editable=False)
     bot = models.ForeignKey(Bot, on_delete=models.SET_NULL, null=True, related_name="webhook_delivery_attempts")
     payload = models.JSONField(default=dict)

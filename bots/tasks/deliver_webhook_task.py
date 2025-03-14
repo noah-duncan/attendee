@@ -7,7 +7,7 @@ from django.utils import timezone
 from bots.models import (
     WebhookDeliveryAttempt, 
     WebhookDeliveryAttemptStatus, 
-    WebhookEventTypes
+    WebhookTriggerTypes
 )
 from bots.webhook_utils import sign_payload
 
@@ -41,7 +41,7 @@ def deliver_webhook(self, delivery_id):
     webhook_data = {
         'idempotency_key': str(delivery.idempotency_key),
         'bot_id': delivery.bot.object_id if delivery.bot else None,
-        'event': WebhookEventTypes.event_type_to_api_code(delivery.webhook_event_type),
+        'trigger': WebhookTriggerTypes.trigger_type_to_api_code(delivery.webhook_event_type),
         'data': delivery.payload
     }
     

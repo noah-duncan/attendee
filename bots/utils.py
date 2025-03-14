@@ -13,7 +13,7 @@ from .models import (
     RecordingStates,
     WebhookDeliveryAttempt,
     WebhookSubscription,
-    WebhookEventTypes,
+    WebhookTriggerTypes,
 )
 
 

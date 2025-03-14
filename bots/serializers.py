@@ -16,7 +16,7 @@ from .models import (
     RecordingStates,
     RecordingTranscriptionStates,
     WebhookSubscription,
-    WebhookEventTypes,
+    WebhookTriggerTypes,
 )
 from .utils import meeting_type_from_url
 
@@ -403,6 +403,6 @@ class WebhookSubscriptionSerializer(serializers.ModelSerializer):
         if not isinstance(value, list):
             raise serializers.ValidationError("Events must be a list")
         for event in value:
-            if event not in [event.value for event in WebhookEventTypes]:
+            if event not in [event.value for event in WebhookTriggerTypes]:
                 raise serializers.ValidationError(f"Invalid event type: {event}")
         return value

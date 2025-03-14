@@ -9,9 +9,10 @@ from bots.models import (
     ApiKey,
     WebhookSubscription,
     WebhookSecret,
-    WebhookEventTypes,
+    WebhookTriggerTypes,
 )
 
+from bots.webhook_utils import sign_payload, verify_signature
 
 class WebhookSubscriptionTest(APITestCase):
     def setUp(self):
@@ -38,7 +39,7 @@ class WebhookSubscriptionTest(APITestCase):
         # Valid webhook data
         self.valid_webhook_data = {
             "url": "https://example.com/webhook",
-            "events": [WebhookEventTypes.BOT_EVENTS]
+            "events": [WebhookTriggerTypes.BOT_STATE_CHANGE]
         }
 
     def test_create_webhook_subscription_success(self):
@@ -110,3 +111,17 @@ class WebhookSubscriptionTest(APITestCase):
         self.assertEqual(WebhookSecret.objects.filter(project=self.project).count(), 1)
         second_secret = WebhookSecret.objects.get(project=self.project)
         self.assertEqual(first_secret.id, second_secret.id) 
+
+    def test_signature_verification(self):
+        payload = {'test': 'data', 'number': 123}
+        secret = 'testsecret'
+        
+        signature = sign_payload(payload, secret)
+        
+        # Verify the signature
+        self.assertTrue(verify_signature(payload, signature, secret))
+        
+        # Modify the payload and verify that the signature is invalid
+        modified_payload = payload.copy()
+        modified_payload['number'] = 456
+        self.assertFalse(verify_signature(modified_payload, signature, secret))
