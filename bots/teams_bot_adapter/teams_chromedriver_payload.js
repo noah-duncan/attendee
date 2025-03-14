@@ -1103,7 +1103,7 @@ const handleVideoTrack = async (event) => {
           */
   
       // Add frame rate control variables
-      const targetFPS = 24;
+      const targetFPS = 1000;
       const frameInterval = 1000 / targetFPS; // milliseconds between frames
       let lastFrameTime = 0;
   

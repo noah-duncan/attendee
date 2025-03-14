@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 
 class GstreamerPipeline:
     AUDIO_FORMAT_PCM = "audio/x-raw,format=S16LE,channels=1,rate=32000,layout=interleaved"
-    AUDIO_FORMAT_FLOAT = "audio/x-raw,format=F32LE,channels=1,rate=48000,layout=interleaved"
+    AUDIO_FORMAT_FLOAT_24KHZ = "audio/x-raw,format=F32LE,channels=1,rate=24000,layout=interleaved"
+    AUDIO_FORMAT_FLOAT_48KHZ = "audio/x-raw,format=F32LE,channels=1,rate=48000,layout=interleaved"
     OUTPUT_FORMAT_FLV = "flv"
     OUTPUT_FORMAT_MP4 = "mp4"
     OUTPUT_FORMAT_WEBM = "webm"

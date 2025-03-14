@@ -114,9 +114,9 @@ class BotController:
         if meeting_type == MeetingTypes.ZOOM:
             return GstreamerPipeline.AUDIO_FORMAT_PCM
         elif meeting_type == MeetingTypes.GOOGLE_MEET:
-            return GstreamerPipeline.AUDIO_FORMAT_FLOAT
+            return GstreamerPipeline.AUDIO_FORMAT_FLOAT_24KHZ
         elif meeting_type == MeetingTypes.TEAMS:
-            return GstreamerPipeline.AUDIO_FORMAT_FLOAT
+            return GstreamerPipeline.AUDIO_FORMAT_FLOAT_48KHZ
 
     def get_num_audio_sources(self):
         meeting_type = self.get_meeting_type()

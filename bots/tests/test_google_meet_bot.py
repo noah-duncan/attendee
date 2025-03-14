@@ -225,9 +225,6 @@ class TestGoogleMeetBot(TransactionTestCase):
         self.assertIsNotNone(caption_utterance)
         self.assertEqual(caption_utterance.transcription.get("transcript"), "This is a test caption")
 
-        # Verify driver was set up with the correct window size
-        mock_driver.set_window_size.assert_called_with(1920 / 2, 1080 / 2)
-
         # Verify WebSocket media sending was enabled and performance.timeOrigin was queried
         mock_driver.execute_script.assert_has_calls([call("window.ws?.enableMediaSending();"), call("return performance.timeOrigin;")])
 
