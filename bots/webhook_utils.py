@@ -15,16 +15,16 @@ def trigger_webhook(webhook_event_type, bot, payload):
     from bots.models import WebhookSubscription, WebhookDeliveryAttempt
     
     subscriptions = WebhookSubscription.objects.filter(events__contains=[webhook_event_type], is_active=True)
-    logger.info(f"Triggering webhook for event {webhook_event_type} with {len(subscriptions)} subscriptions")
+
     delivery_attempts = []
     for subscription in subscriptions:
         # Create a webhook delivery attempt record
         delivery_attempt = WebhookDeliveryAttempt.objects.create(
             webhook_subscription=subscription,
             webhook_event_type=webhook_event_type,
-            payload=payload,
+            idempotency_key=uuid.uuid4(),
             bot=bot,
-            idempotency_key=uuid.uuid4()
+            payload=payload,
         )
         delivery_attempts.append(delivery_attempt)
 
@@ -35,14 +35,7 @@ def trigger_webhook(webhook_event_type, bot, payload):
 
 def sign_payload(payload, secret):
     """
-    Sign a webhook payload using HMAC-SHA256.
-    
-    Args:
-        payload (dict): The payload to sign
-        secret (str): The webhook secret
-        
-    Returns:
-        str: Base64-encoded HMAC-SHA256 signature
+    Sign a webhook payload using HMAC-SHA256. Returns a base64-encoded HMAC-SHA256 signature
     """
     # Convert the payload to a canonical JSON string
     payload_json = json.dumps(payload, sort_keys=True, separators=(',', ':'))
@@ -59,15 +52,7 @@ def sign_payload(payload, secret):
 
 def verify_signature(payload, signature, secret):
     """
-    Verify a webhook signature.
-    
-    Args:
-        payload (dict): The payload that was signed
-        signature (str): The signature to verify
-        secret (str): The webhook secret
-        
-    Returns:
-        bool: True if the signature is valid, False otherwise
+    Verify a webhook signature. Not used in production, but useful for testing.
     """
     expected_signature = sign_payload(payload, secret)
     

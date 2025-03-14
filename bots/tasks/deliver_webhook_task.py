@@ -4,7 +4,11 @@ import requests
 import logging
 from celery import shared_task
 from django.utils import timezone
-from bots.models import WebhookDeliveryAttempt, WebhookDeliveryAttemptStatus
+from bots.models import (
+    WebhookDeliveryAttempt, 
+    WebhookDeliveryAttemptStatus, 
+    WebhookEventTypes
+)
 from bots.webhook_utils import sign_payload
 
 logger = logging.getLogger(__name__)
@@ -35,9 +39,9 @@ def deliver_webhook(self, delivery_id):
     
     # Prepare the webhook payload
     webhook_data = {
-        'id': str(delivery.id),
-        'event': delivery.webhook_event_type,
-        'created': delivery.created_at.isoformat(),
+        'idempotency_key': str(delivery.idempotency_key),
+        'bot_id': delivery.bot.object_id if delivery.bot else None,
+        'event': WebhookEventTypes.event_type_to_api_code(delivery.webhook_event_type),
         'data': delivery.payload
     }
     
