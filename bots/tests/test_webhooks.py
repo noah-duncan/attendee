@@ -1,19 +1,24 @@
+import uuid
+
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 from unittest.mock import patch
 
-
 from bots.models import (
+    Bot,
+    BotStates,
     Organization,
     Project,
     ApiKey,
     WebhookSubscription,
     WebhookSecret,
     WebhookTriggerTypes,
+    WebhookDeliveryAttempt,
+    WebhookDeliveryAttemptStatus,
 )
-
+from bots.tasks.deliver_webhook_task import deliver_webhook
 from bots.webhook_utils import sign_payload, verify_signature
 
 class WebhookSubscriptionTest(APITestCase):
@@ -144,7 +149,7 @@ class WebhookDeliveryTest(TestCase):
             state=BotStates.READY
         )
 
-    @patch('bots.tasks.requests.post')
+    @patch('bots.tasks.deliver_webhook_task.requests.post')
     def test_webhook_delivery_success(self, mock_post):
         """Test successful webhook delivery"""
         mock_post.return_value.status_code = 200
@@ -167,7 +172,7 @@ class WebhookDeliveryTest(TestCase):
         self.assertEqual(attempt.status, WebhookDeliveryAttemptStatus.SUCCESS)
         self.assertIsNotNone(attempt.succeeded_at)
 
-    @patch('bots.tasks.requests.post')
+    @patch('bots.tasks.deliver_webhook_task.requests.post')
     def test_webhook_delivery_failure(self, mock_post):
         """Test webhook delivery failure and retry"""
         mock_post.return_value.status_code = 500
