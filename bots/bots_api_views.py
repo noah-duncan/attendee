@@ -31,8 +31,8 @@ from .models import (
     TranscriptionProviders,
     TranscriptionTypes,
     Utterance,
-    WebhookSubscription,
     WebhookSecret,
+    WebhookSubscription,
 )
 from .serializers import (
     BotSerializer,
@@ -671,6 +671,7 @@ class BotDetailView(APIView):
         except Bot.DoesNotExist:
             return Response({"error": "Bot not found"}, status=status.HTTP_404_NOT_FOUND)
 
+
 class WebhookSubscriptionView(APIView):
     authentication_classes = [ApiKeyAuthentication]
 
@@ -701,9 +702,7 @@ class WebhookSubscriptionView(APIView):
         # Get the project's secret for the webhook subscription. If new project, create a new one
         webhook_secret = WebhookSecret.objects.filter(project=request.auth.project).first()
         if not webhook_secret:
-            webhook_secret = WebhookSecret.objects.create(
-                project=request.auth.project
-            )
+            webhook_secret = WebhookSecret.objects.create(project=request.auth.project)
 
         # Create the webhook subscription
         webhook_subscription = WebhookSubscription.objects.create(
@@ -713,4 +712,7 @@ class WebhookSubscriptionView(APIView):
             secret=webhook_secret,
         )
 
-        return Response(WebhookSubscriptionSerializer(webhook_subscription).data, status=status.HTTP_201_CREATED)
+        return Response(
+            WebhookSubscriptionSerializer(webhook_subscription).data,
+            status=status.HTTP_201_CREATED,
+        )
