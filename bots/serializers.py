@@ -15,6 +15,8 @@ from .models import (
     RecordingFormats,
     RecordingStates,
     RecordingTranscriptionStates,
+    WebhookSubscription,
+    WebhookTriggerTypes,
 )
 from .utils import meeting_type_from_url
 
@@ -384,4 +386,33 @@ class SpeechSerializer(serializers.Serializer):
         except jsonschema.exceptions.ValidationError as e:
             raise serializers.ValidationError(e.message)
 
+        return value
+
+class WebhookSubscriptionSerializer(serializers.ModelSerializer):
+    secret = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WebhookSubscription
+        fields = ['id', 'url', 'events', 'is_active', 'created_at', 'secret']
+        read_only_fields = ['id', 'created_at', 'secret']
+
+    @extend_schema_field({
+        "type": "string",
+        "description": "The secret value for the webhook subscription. Only displayed once when the webhook subscription is created.",
+    })
+    def get_secret(self, obj):
+        import base64
+        return base64.b64encode(obj.secret.get_secret()).decode()
+
+    def validate_url(self, value):
+        if not value.startswith('https://'):
+            raise serializers.ValidationError("URL must start with https://")
+        return value
+    
+    def validate_events(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Events must be a list")
+        for event in value:
+            if event not in [event.value for event in WebhookTriggerTypes]:
+                raise serializers.ValidationError(f"Invalid event type: {event}")
         return value

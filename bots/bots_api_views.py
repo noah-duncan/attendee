@@ -31,6 +31,8 @@ from .models import (
     TranscriptionProviders,
     TranscriptionTypes,
     Utterance,
+    WebhookSubscription,
+    WebhookSecret,
 )
 from .serializers import (
     BotSerializer,
@@ -38,6 +40,7 @@ from .serializers import (
     RecordingSerializer,
     SpeechSerializer,
     TranscriptUtteranceSerializer,
+    WebhookSubscriptionSerializer,
 )
 from .tasks import run_bot
 
@@ -667,3 +670,47 @@ class BotDetailView(APIView):
 
         except Bot.DoesNotExist:
             return Response({"error": "Bot not found"}, status=status.HTTP_404_NOT_FOUND)
+
+class WebhookSubscriptionView(APIView):
+    authentication_classes = [ApiKeyAuthentication]
+
+    @extend_schema(
+        operation_id="Create Webhook Subscription",
+        summary="Create a new webhook subscription",
+        description="Inside the project, create a new webhook subscription to receive events.",
+        request=WebhookSubscriptionSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=WebhookSubscriptionSerializer,
+                description="Webhook subscription created successfully",
+            ),
+            400: OpenApiResponse(description="Invalid input"),
+        },
+        parameters=TokenHeaderParameter,
+        tags=["Webhooks"],
+    )
+    def post(self, request):
+        serializer = WebhookSubscriptionSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if the URL is already subscribed
+        if WebhookSubscription.objects.filter(url=serializer.validated_data["url"]).exists():
+            return Response({"error": "URL already subscribed"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get the project's secret for the webhook subscription. If new project, create a new one
+        webhook_secret = WebhookSecret.objects.filter(project=request.auth.project).first()
+        if not webhook_secret:
+            webhook_secret = WebhookSecret.objects.create(
+                project=request.auth.project
+            )
+
+        # Create the webhook subscription
+        webhook_subscription = WebhookSubscription.objects.create(
+            project=request.auth.project,
+            url=serializer.validated_data["url"],
+            events=serializer.validated_data["events"],
+            secret=webhook_secret,
+        )
+
+        return Response(WebhookSubscriptionSerializer(webhook_subscription).data, status=status.HTTP_201_CREATED)

@@ -3,6 +3,11 @@ from django.urls import path
 from . import bots_api_views
 
 urlpatterns = [
+    path(
+        "webhook_subscription",
+        bots_api_views.WebhookSubscriptionView.as_view(),
+        name="webhook-subscription",
+    ),
     path("bots", bots_api_views.BotCreateView.as_view(), name="bot-create"),
     path(
         "bots/<str:object_id>",
