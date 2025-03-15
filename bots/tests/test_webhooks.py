@@ -2,6 +2,8 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
+from unittest.mock import patch
+
 
 from bots.models import (
     Organization,
@@ -114,7 +116,7 @@ class WebhookSubscriptionTest(APITestCase):
 
     def test_signature_verification(self):
         payload = {'test': 'data', 'number': 123}
-        secret = 'testsecret'
+        secret = b'testsecret'
         
         signature = sign_payload(payload, secret)
         
@@ -125,3 +127,63 @@ class WebhookSubscriptionTest(APITestCase):
         modified_payload = payload.copy()
         modified_payload['number'] = 456
         self.assertFalse(verify_signature(modified_payload, signature, secret))
+
+class WebhookDeliveryTest(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.project = Project.objects.create(name="Test Project", organization=self.organization)
+        self.webhook_subscription = WebhookSubscription.objects.create(
+            project=self.project,
+            url="https://example.com/webhook",
+            events=[WebhookTriggerTypes.BOT_STATE_CHANGE],
+            secret=WebhookSecret.objects.create(project=self.project)
+        )
+        self.bot = Bot.objects.create(
+            project=self.project,
+            meeting_url="https://zoom.us/j/123",
+            state=BotStates.READY
+        )
+
+    @patch('bots.tasks.requests.post')
+    def test_webhook_delivery_success(self, mock_post):
+        """Test successful webhook delivery"""
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.text = "OK"
+
+        # Create delivery attempt
+        attempt = WebhookDeliveryAttempt.objects.create(
+            webhook_subscription=self.webhook_subscription,
+            webhook_event_type=WebhookTriggerTypes.BOT_STATE_CHANGE,
+            bot=self.bot,
+            idempotency_key=uuid.uuid4(),
+            payload={"test": "data"}
+        )
+
+        # Call delivery task
+        deliver_webhook.apply(args=[attempt.id])
+
+        # Verify request was made with correct data
+        mock_post.assert_called_once()
+        self.assertEqual(attempt.status, WebhookDeliveryAttemptStatus.SUCCESS)
+        self.assertIsNotNone(attempt.succeeded_at)
+
+    @patch('bots.tasks.requests.post')
+    def test_webhook_delivery_failure(self, mock_post):
+        """Test webhook delivery failure and retry"""
+        mock_post.return_value.status_code = 500
+        mock_post.return_value.text = "Server Error"
+
+        attempt = WebhookDeliveryAttempt.objects.create(
+            webhook_subscription=self.webhook_subscription,
+            webhook_event_type=WebhookTriggerTypes.BOT_STATE_CHANGE,
+            bot=self.bot,
+            idempotency_key=uuid.uuid4(),
+            payload={"test": "data"}
+        )
+
+        # Call delivery task
+        deliver_webhook.apply(args=[attempt.id])
+
+        self.assertEqual(attempt.status, WebhookDeliveryAttemptStatus.FAILURE)
+        self.assertIsNone(attempt.succeeded_at)
+        self.assertEqual(attempt.attempt_count, 1)

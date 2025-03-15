@@ -11,7 +11,6 @@ from drf_spectacular.utils import (
     OpenApiResponse,
     extend_schema,
 )
-import secrets
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -705,7 +704,6 @@ class WebhookSubscriptionView(APIView):
             webhook_secret = WebhookSecret.objects.create(
                 project=request.auth.project
             )
-            webhook_secret.set_secret(secrets.token_bytes(32))
 
         # Create the webhook subscription
         webhook_subscription = WebhookSubscription.objects.create(

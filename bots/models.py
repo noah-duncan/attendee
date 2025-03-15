@@ -2,10 +2,11 @@ import hashlib
 import json
 import random
 import string
+import secrets
 
 from concurrency.exceptions import RecordModifiedError
 from concurrency.fields import IntegerVersionField
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
@@ -1062,16 +1063,12 @@ class WebhookSecret(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="webhook_secrets")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
-    def set_secret(self, secret):
-        """Encrypt and save secret"""
-        if not secret:
-            raise ValueError("Secret cannot be empty")
-            
-        f = Fernet(settings.CREDENTIALS_ENCRYPTION_KEY)
-        print(f"SECRET: {secret}")
-        self._secret = f.encrypt(secret)
-        self.save()
+    
+    class Meta:
+        # TODO for later: Remove this line to support secret rotation
+        constraints = [
+            models.UniqueConstraint(fields=["project"], name="unique_webhook_secret_per_project")
+        ]
 
     def get_secret(self):
         """Decrypt and return secret"""
@@ -1082,13 +1079,15 @@ class WebhookSecret(models.Model):
             decrypted_data = f.decrypt(bytes(self._secret))
             return decrypted_data
         except (InvalidToken, ValueError) as e:
-            logger.error(f"Failed to decrypt webhook secret (ID: {self.id}): {e}")
             return None
     
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["project"], name="unique_webhook_secret_per_project")
-        ]
+    def save(self, *args, **kwargs):
+        # Only generate a secret if this is a new object (not yet saved to DB)
+        if not self.pk and not self._secret:
+            secret = secrets.token_bytes(32)
+            f = Fernet(settings.CREDENTIALS_ENCRYPTION_KEY)
+            self._secret = f.encrypt(secret)
+        super().save(*args, **kwargs)
 
 class WebhookTriggerTypes(models.IntegerChoices):
     BOT_STATE_CHANGE = 1, "Bot State Change"
