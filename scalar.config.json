@@ -1,6 +1,15 @@
 {
   "subdomain": "attendee",
-  "guides": [],
+  "guides": [{
+      "name": "Basics",
+      "sidebar": [
+        {
+          "path": "docs/basics.md",
+          "type": "page"
+        }
+      ]
+    }
+  ],
   "references": [
     {
       "name": "API Reference",
