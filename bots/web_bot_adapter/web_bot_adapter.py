@@ -551,6 +551,3 @@ class WebBotAdapter(BotAdapter):
                 logger.info(f"Auto-leaving meeting because there was no media message for {self.automatic_leave_configuration.silence_threshold_seconds} seconds")
                 self.send_message_callback({"message": self.Messages.ADAPTER_REQUESTED_BOT_LEAVE_MEETING, "leave_reason": BotAdapter.LEAVE_REASON.AUTO_LEAVE_SILENCE})
                 return
-
-    def send_raw_audio(self, bytes, sample_rate):
-        logger.info("send_raw_audio not supported in google meet bots")

@@ -10,3 +10,6 @@ class TeamsBotAdapter(WebBotAdapter, TeamsUIMethods):
 
     def get_websocket_port(self):
         return 8097
+
+    def send_raw_audio(self, bytes, sample_rate):
+        print("send_raw_audio not supported in teams bots")
