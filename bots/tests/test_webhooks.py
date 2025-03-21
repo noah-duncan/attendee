@@ -174,7 +174,7 @@ class WebhookDeliveryTest(TestCase):
 
         # Call delivery task
         deliver_webhook.apply(args=[attempt.id])
-        
+
         # Refresh the attempt object from the db
         attempt.refresh_from_db()
 
