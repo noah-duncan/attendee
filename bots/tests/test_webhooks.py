@@ -174,6 +174,9 @@ class WebhookDeliveryTest(TestCase):
 
         # Call delivery task
         deliver_webhook.apply(args=[attempt.id])
+        
+        # Refresh the attempt object from the db
+        attempt.refresh_from_db()
 
         # Verify request was made with correct data
         mock_post.assert_called_once()
@@ -196,6 +199,9 @@ class WebhookDeliveryTest(TestCase):
 
         # Call delivery task
         deliver_webhook.apply(args=[attempt.id])
+
+        # Refresh the attempt object from the db
+        attempt.refresh_from_db()
 
         self.assertEqual(attempt.status, WebhookDeliveryAttemptStatus.FAILURE)
         self.assertIsNone(attempt.succeeded_at)
