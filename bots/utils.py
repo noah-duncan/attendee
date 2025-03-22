@@ -4,7 +4,10 @@ import cv2
 import numpy as np
 from pydub import AudioSegment
 
-from .models import MeetingTypes, RecordingStates
+from .models import (
+    MeetingTypes,
+    RecordingStates,
+)
 
 
 def pcm_to_mp3(

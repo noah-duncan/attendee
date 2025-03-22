@@ -1,3 +1,4 @@
+from .deliver_webhook_task import deliver_webhook
 from .process_utterance_task import process_utterance
 from .run_bot_task import run_bot
 
@@ -5,4 +6,5 @@ from .run_bot_task import run_bot
 __all__ = [
     "process_utterance",
     "run_bot",
+    "deliver_webhook",
 ]
