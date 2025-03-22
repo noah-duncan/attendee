@@ -24,6 +24,7 @@ from bots.models import (
     BotMediaRequestStates,
     BotStates,
     Credentials,
+    CreditTransaction,
     MediaBlob,
     Organization,
     Project,
@@ -305,6 +306,7 @@ class TestZoomBot(TransactionTestCase):
 
         # Set required environment variables
         os.environ["AWS_RECORDING_STORAGE_BUCKET_NAME"] = "test-bucket"
+        os.environ["CHARGE_CREDITS_FOR_BOTS"] = "true"
 
     def setUp(self):
         # Recreate organization and project for each test
@@ -482,6 +484,15 @@ class TestZoomBot(TransactionTestCase):
         self.assertEqual(post_processing_completed_event.event_type, BotEventTypes.POST_PROCESSING_COMPLETED)
         self.assertEqual(post_processing_completed_event.old_state, BotStates.POST_PROCESSING)
         self.assertEqual(post_processing_completed_event.new_state, BotStates.ENDED)
+
+        # Verify that a charge was created
+        credit_transaction = CreditTransaction.objects.filter(bot=self.bot).first()
+        self.assertIsNotNone(credit_transaction, "No credit transaction was created for the bot")
+        self.assertEqual(credit_transaction.organization, self.organization)
+        self.assertLess(credit_transaction.centicredits_delta, 0, "Credit transaction should have a negative delta (charge)")
+        self.assertEqual(credit_transaction.centicredits_delta, -self.bot.centicredits_consumed(), "Credit transaction should have a negative delta (charge)")
+        self.assertEqual(credit_transaction.bot, self.bot)
+        self.assertEqual(credit_transaction.organization.centicredits, 500 - self.bot.centicredits_consumed())
 
         # Verify expected SDK calls
         mock_zoom_sdk_adapter.InitSDK.assert_called_once()
