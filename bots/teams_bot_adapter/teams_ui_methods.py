@@ -117,7 +117,7 @@ class TeamsUIMethods:
 
         self.fill_out_name_input()
 
-         # Check if the mic is off and turn it on if needed
+        # Check if the mic is off and turn it on if needed
         logger.info("Checking if the microphone is off...")
         mic_off_button = self.find_element_by_selector(By.XPATH, "//div[@data-cid='toggle-mute-false']//div[contains(@class, 'ui-checkbox__indicator')]")
         if mic_off_button:
