@@ -117,6 +117,15 @@ class TeamsUIMethods:
 
         self.fill_out_name_input()
 
+        # Check if the mic is off and turn it on if needed
+        logger.info("Checking if the microphone is off...")
+        mic_off_button = self.find_element_by_selector(By.XPATH, "//div[@data-cid='toggle-mute-false']//div[contains(@class, 'ui-checkbox__indicator')]")
+        if mic_off_button:
+            logger.info("Microphone is OFF. Clicking to turn it ON.")
+            self.click_element(mic_off_button, "mic_toggle_button")
+        else:
+            logger.info("Microphone is already ON. No action needed.")
+
         logger.info("Waiting for the Join now button...")
         join_button = self.locate_element(step="join_button", condition=EC.presence_of_element_located((By.CSS_SELECTOR, '[data-tid="prejoin-join-button"]')), wait_time_seconds=10)
         logger.info("Clicking the Join now button...")
