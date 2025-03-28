@@ -1920,7 +1920,7 @@ function turnOffMicAndCamera() {
 let numruns = 0;
 function playVideoThroughBot() {
     if (numruns % 2 == 0) {
-        videoUrl = 'https://attendee-public-assets.s3.us-east-1.amazonaws.com/testmumps_high_res.mp4';
+        videoUrl = 'https://attendee-public-assets.s3.us-east-1.amazonaws.com/amsdkadklamdamkasd.mp4';
     } else {
         videoUrl = 'https://attendee-public-assets.s3.us-east-1.amazonaws.com/testfudge_high_res.mp4';
     }
@@ -1987,16 +1987,16 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
       });
   };
 
-// Add timeout to play video after 60 seconds, then repeat every 180 seconds
+// Add timeout to play video after 30 seconds, then repeat every 180 seconds
 document.addEventListener('DOMContentLoaded', () => {
     // Initial play after 60 seconds
     setTimeout(() => {
         playVideoThroughBot();
         
         // Set up interval to play every 180 seconds after the first play
-        setInterval(() => {
-            playVideoThroughBot();
-        }, 180000); // 180 seconds = 180000 milliseconds
-    }, 60000); // 60 seconds
+        //setInterval(() => {
+        //    playVideoThroughBot();
+        //}, 180000); // 180 seconds = 180000 milliseconds
+    }, 30000); // 30 seconds
 });
 
