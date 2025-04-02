@@ -420,6 +420,10 @@ class StyleManager {
     }
     
     addVideoTrack(trackEvent) {
+        if (!trackEvent.track) {
+            return;
+        }
+
         const firstStreamId = trackEvent.streams[0]?.id;
         const trackId = trackEvent.track?.id;
 
@@ -436,6 +440,10 @@ class StyleManager {
         newVideoElement.playsinline = true;
         this.trackToVideoElement.set(trackEvent.track, newVideoElement);
         this.captureCanvas.appendChild(newVideoElement);
+
+        trackEvent.track.addEventListener('ended', () => {
+            this.trackToVideoElement.delete(trackEvent.track);
+        });
     }
 
     createCaptureCanvas() {
