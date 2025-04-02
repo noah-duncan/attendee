@@ -1,3 +1,354 @@
+class ShadowVideoManager {
+    constructor() {
+        this.shadowVideos = new Map(); // Maps original video elements to their shadow copies
+        this.observer = null;
+        this.videoCount = 0;
+        this.captureCanvas = null;
+        this.mainVideoContainer = null;
+        this.mainVideoContainerVideo = null;
+        this.sideVideoContainer = null;
+        this.captureCanvasVisible = true;
+    }
+
+    createCaptureCanvas() {
+        const canvas = document.createElement('div');
+        canvas.classList.add('captureCanvas');
+        canvas.style.width = '1920px';
+        canvas.style.height = '1080px';
+        canvas.style.backgroundColor = 'black';
+        canvas.style.position = 'fixed';
+        canvas.style.top = '0';
+        canvas.style.left = '0';
+        //canvas.style.zIndex = '9999';
+        document.body.appendChild(canvas);
+        return canvas;
+    }
+
+    showAllNonCaptureCanvasElementsAndHideCaptureCanvas() {
+        if (this.currentStyleElement) {
+            document.head.removeChild(this.currentStyleElement);
+        }
+
+        // Hide the capture canvas
+        this.captureCanvas.style.visibility = 'hidden';
+    }
+
+    hideAllNonCaptureCanvasElements() {
+        if (this.captureCanvas) {
+            this.captureCanvas.style.visibility = 'visible';
+        }
+
+        const style = document.createElement('style');
+        style.textContent = `
+        /* First, hide everything */
+        body * {
+          visibility: hidden;
+        }
+        
+        /* Then, show only elements with captureCanvas class */
+        body .captureCanvas,
+        body .captureCanvas * {
+          visibility: visible;
+        }
+        
+        /* Make sure parent containers of captureCanvas elements are visible too */
+        body .captureCanvas,
+        body .captureCanvas *,
+        body .captureCanvas:hover,
+        body .captureCanvas:focus {
+          visibility: visible;
+        }
+        `;
+        document.head.appendChild(style);
+        this.currentStyleElement = style;
+    }
+
+    createMainVideoContainer() {
+        const container = document.createElement('div');
+        container.classList.add('mainVideoContainer');
+        container.style.width = '1920px';
+        container.style.height = '1080px';
+        container.style.position = 'fixed';
+        container.style.top = '0';
+        container.style.left = '0';
+        container.style.zIndex = '9999';
+        this.captureCanvas.appendChild(container);
+        return container;
+    }
+
+    createSideVideoContainer() {
+        const container = document.createElement('div');
+        container.classList.add('sideVideoContainer');
+        container.style.width = '100px';
+        container.style.height = '100px';  
+        container.style.position = 'fixed';
+        container.style.top = '0';
+        container.style.left = '0';
+        container.style.zIndex = '99999';
+        this.captureCanvas.appendChild(container);
+        return container;
+    }
+    start() {
+        this.hideAllNonCaptureCanvasElements();
+        this.captureCanvas = this.createCaptureCanvas();
+        this.mainVideoContainer = this.createMainVideoContainer();
+        this.sideVideoContainer = this.createSideVideoContainer();
+        // Start observing when created
+        this.startObserving();
+
+
+        document.addEventListener('keydown', this.handleKeyDown.bind(this));
+
+    }
+    
+    handleKeyDown(event) {
+        // Toggle canvas visibility when 's' key is pressed
+        if (event.key === 's') {
+            this.toggleCaptureCanvasVisibility();
+        }
+    }
+
+    toggleCaptureCanvasVisibility() {
+        if (this.captureCanvasVisible) {
+            this.showAllNonCaptureCanvasElementsAndHideCaptureCanvas();
+            this.captureCanvasVisible = false;
+            console.log('Capture canvas hidden');
+        } else {
+            try {
+                this.hideAllNonCaptureCanvasElements();
+                this.captureCanvasVisible = true;
+                console.log('Capture canvas shown');
+            }
+            catch (error) {
+                console.error('Error showing capture canvas', error);
+            }
+        }
+    }
+
+    startObserving() {        
+        // Set up observer to watch for DOM changes
+        this.observer = new MutationObserver((mutations) => {
+            let newVideosFound = false;
+            
+            for (const mutation of mutations) {
+                // Check for added nodes
+                if (mutation.addedNodes.length > 0) {
+                    for (const node of mutation.addedNodes) {
+                        if (node.nodeName === 'VIDEO') {
+                            this.mapVideo(node);
+                            newVideosFound = true;
+                        } else if (node.querySelectorAll) {
+                            // Check if any videos were added as children
+                            const videos = node.querySelectorAll('video');
+                            for (const video of videos) {
+                                this.mapVideo(video);
+                                newVideosFound = true;
+                            }
+                        }
+                    }
+                }
+                
+                // Check for removed nodes
+                if (mutation.removedNodes.length > 0) {
+                    for (const node of mutation.removedNodes) {
+                        if (node.nodeName === 'VIDEO') {
+                            // Use setTimeout to delay removing the mapping
+                            // This gives time for the video to be reparented if that's what's happening
+                            setTimeout(() => {
+                                // Only remove if the video is no longer in the document
+                                if (!document.body.contains(node)) {
+                                    this.removeVideoMapping(node);
+                                }
+                            }, 50); // 50ms delay should be enough
+                        } else if (node.querySelectorAll) {
+                            // Check if any videos were removed as children
+                            const videos = node.querySelectorAll('video');
+                            for (const video of videos) {
+                                setTimeout(() => {
+                                    // Only remove if the video is no longer in the document
+                                    if (!document.body.contains(video)) {
+                                        this.removeVideoMapping(video);
+                                    }
+                                }, 50);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (newVideosFound) {
+                console.log(`Total videos tracked: ${this.videoElements.size}`);
+            }
+        });
+        
+        // Only observe if document.body exists
+        if (document.body) {
+            // Start observing the entire document for changes
+            this.observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+        } else {
+            // Wait for document.body to be available
+            console.log("document.body not available, waiting to start observer...");
+            const checkBody = () => {
+                if (document.body) {
+                    this.observer.observe(document.body, {
+                        childList: true,
+                        subtree: true
+                    });
+                    console.log("document.body now available, observer started");
+                } else {
+                    setTimeout(checkBody, 50); // Check again in 50ms
+                }
+            };
+            checkBody();
+        }
+
+        // First, label any existing videos
+        this.mapExistingVideos();
+    }
+    
+    mapExistingVideos() {
+        const videos = document.querySelectorAll('video');
+        videos.forEach(video => this.mapVideo(video));
+        console.log(`Found ${videos.length} existing video elements`);
+    }
+
+    getRealVideoFromShadowVideo(shadowVideo) {
+        this.shadowVideos.forEach((shadowElements, videoElement) => {
+            if (shadowElements.shadowVideo === shadowVideo) {
+                return videoElement;
+            }
+        });
+        return null;
+    }
+    
+    mapVideo(videoElement) {
+        try {
+            if (videoElement.dataset.shadowVideo) {
+                return;
+            }
+
+            // Skip if already labeled
+            let shadowElements = this.shadowVideos.get(videoElement);
+
+            if (!shadowElements) {        
+                // Assign a number
+                const videoNumber = ++this.videoCount;
+                
+                // Create shadow video element
+                const shadowVideo = document.createElement('video');
+                this.shadowVideos.set(videoElement, {shadowVideo});
+
+                shadowVideo.srcObject = videoElement.srcObject;
+                shadowVideo.autoplay = true;
+                shadowVideo.style.position = 'absolute';
+                shadowVideo.style.bottom = `${(videoNumber - 1) * 120 + 10}px`;
+                shadowVideo.style.width = '100%';
+                shadowVideo.style.height = '100%';
+                //shadowVideo.style.right = '10px';
+                //shadowVideo.style.width = '160px';
+                //shadowVideo.style.height = '90px';
+                //shadowVideo.style.border = '2px solid red';
+               // shadowVideo.style.borderRadius = '4px';
+                shadowVideo.style.zIndex = '9998';
+                shadowVideo.style.objectFit = 'contain';
+                shadowVideo.style.backgroundColor = 'black';
+                shadowVideo.style.visibility = videoElement.style.visibility;
+                shadowVideo.setAttribute('data-shadow-video', 'true'); // Mark this as a shadow video
+
+                this.captureCanvas.appendChild(shadowVideo);
+                    
+                        
+                // Add listener for source changes
+                videoElement.addEventListener('loadedmetadata', () => {
+                    console.log(`Video #${videoNumber} loaded new source: ${videoElement.srcObject?.id || 'unknown'}`, videoElement);
+                    // Update shadow video's srcObject when original changes
+                    shadowVideo.srcObject = videoElement.srcObject;
+                });
+
+                // Add observer for style changes, particularly visibility
+                const styleObserver = new MutationObserver((mutations) => {
+                    for (const mutation of mutations) {
+                        if (mutation.attributeName === 'style') {
+                           // console.log('style changed', videoElement.style, ' old ', mutation.oldValue);
+                            shadowVideo.style.visibility = videoElement.style.visibility;
+                            shadowVideo.style.display = videoElement.style.display;
+                        }
+                    }
+                });
+                
+                // Start observing style changes
+                styleObserver.observe(videoElement, {
+                    attributes: true,
+                    oldValue: true,
+                    attributeFilter: ['style']
+                });
+
+                shadowElements = this.shadowVideos.get(videoElement);
+            }
+
+            const videoElementIsInMain = !!videoElement.closest('.i8wGAe');
+            console.log('videoElementIsInMain', videoElementIsInMain, 'for video', videoElement, ' and for shadowVideo', shadowElements.shadowVideo);
+
+            if (videoElementIsInMain) {
+                //const shadowVideoIsInMain = shadowElements.shadowVideo.closest('.mainVideoContainer');
+                this.mainVideoContainer.appendChild(shadowElements.shadowVideo);
+            }
+            else {
+                this.sideVideoContainer.appendChild(shadowElements.shadowVideo);
+            }
+            /*
+            if (videoElement.closest('.i8wGAe') && videoElement.style.display !== 'none') {
+                console.log('NEW MAIN VIDEO', videoElement, 'shadowElements', shadowElements);
+                //this.mainVideoContainer.removeChild(this.mainVideoContainer.querySelector('video'));
+                if (this.mainVideoContainerVideo != shadowElements.shadowVideo) {
+                    const containerToBeRemoved = this.mainVideoContainerVideo;
+                    setTimeout(() => {
+                        containerToBeRemoved.style.opacity = 0;
+                    }, 100);
+                    this.mainVideoContainerVideo = shadowElements.shadowVideo;
+                    this.mainVideoContainerVideo.style.opacity = 1;
+                    this.mainVideoContainer.appendChild(shadowElements.shadowVideo);
+                }
+            }
+                */
+        } catch (error) {
+            console.error('Error mapping video', error);
+        }
+    }
+    
+    removeVideoMapping(videoElement) {
+        if (!this.shadowVideos.has(videoElement)) {
+            return;
+        }
+        
+        const shadowElements = this.shadowVideos.get(videoElement);
+        if (shadowElements) {
+            const shadowVideoComponent = shadowElements.shadowVideo;
+            if (shadowVideoComponent) {
+                shadowVideoComponent.remove();
+            }
+            this.shadowVideos.delete(videoElement);
+        }
+        
+        console.log(`Removed video element`, videoElement);
+    }
+    
+    stop() {
+        if (this.observer) {
+            this.observer.disconnect();
+            this.observer = null;
+        }
+
+        for (const videoElement of this.videoElements.keys()) {
+            this.removeVideoMapping(videoElement);
+        }
+    }
+}
+
+
 class StyleManager {
     constructor() {
         this.videoTrackIdToSSRC = new Map();
@@ -1539,7 +1890,7 @@ class WebSocketClient {
 
   enableMediaSending() {
     this.mediaSendingEnabled = true;
-    window.styleManager.start();
+    window.shadowVideoManager.start();
     //window.fullCaptureManager.start();
 
     // No longer need this because we're not using MediaStreamTrackProcessor's
@@ -1547,7 +1898,7 @@ class WebSocketClient {
   }
 
   async disableMediaSending() {
-    window.styleManager.stop();
+    window.shadowVideoManager.stop();
     //window.fullCaptureManager.stop();
     // Give the media recorder a bit of time to send the final data
     await new Promise(resolve => setTimeout(resolve, 2000));
@@ -1972,11 +2323,13 @@ const captionManager = new CaptionManager(ws);
 const videoTrackManager = new VideoTrackManager(ws);
 const fullCaptureManager = new FullCaptureManager();
 const styleManager = new StyleManager();
+const shadowVideoManager = new ShadowVideoManager();
 
 window.videoTrackManager = videoTrackManager;
 window.userManager = userManager;
 window.fullCaptureManager = fullCaptureManager;
 window.styleManager = styleManager;
+window.shadowVideoManager = shadowVideoManager;
 // Create decoders for all message types
 const messageDecoders = {};
 messageTypes.forEach(type => {
