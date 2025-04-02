@@ -151,10 +151,10 @@ class StyleManager {
                 // Keep everything to the right of the pipe character
                 const rightSideContent = currentLabel.substring(pipeIndex);
                 // Replace left side with new random string
-                captureCanvasElements.captureCanvasLabelElement.textContent = this.renderState + ',' + this.renderStateUnsyncReason + ', ' + captureCanvasElements.captureCanvasVideoElement.readyState + rightSideContent;
+                captureCanvasElements.captureCanvasLabelElement.textContent = captureCanvasElements.captureCanvasCanvasElement.style.zIndex.toString() + '/' + captureCanvasElements.captureCanvasVideoElement.style.zIndex.toString() + ',' + this.renderState + ',' + this.renderStateUnsyncReason + ', ' + captureCanvasElements.captureCanvasVideoElement.readyState + rightSideContent;
             } else {
                 // If no pipe character found, just replace the whole thing
-                captureCanvasElements.captureCanvasLabelElement.textContent = this.renderState + ',' + this.renderStateUnsyncReason + ', ' + captureCanvasElements.captureCanvasVideoElement.readyState;
+                captureCanvasElements.captureCanvasLabelElement.textContent = captureCanvasElements.captureCanvasCanvasElement.style.zIndex.toString() + '/' + captureCanvasElements.captureCanvasVideoElement.style.zIndex.toString() + ',' + this.renderState + ',' + this.renderStateUnsyncReason + ', ' + captureCanvasElements.captureCanvasVideoElement.readyState;
             }
         });
     }
@@ -162,7 +162,7 @@ class StyleManager {
     updateElementsForRenderStateChange(captureCanvasElements) {
         this.videoElementToCaptureCanvasElements.forEach((captureCanvasElements) => {
             if (this.renderState === "unsynced") {
-                if (captureCanvasElements.captureCanvasVideoElement.style.display !== 'none') {
+                if (captureCanvasElements.captureCanvasCanvasElement.style.zIndex !== '9') {
                     // use getclientrects to get the width and height of the container and the canvas
                     const containerRect = captureCanvasElements.captureCanvasContainerElement.getBoundingClientRect();
                     const canvasRect = captureCanvasElements.captureCanvasCanvasElement.getBoundingClientRect();
@@ -199,17 +199,13 @@ class StyleManager {
                     ctx.fillRect(0, 0, containerRect.width, containerRect.height);
                     ctx.drawImage(videoElement, drawX, drawY, drawWidth, drawHeight);
                     
-                    captureCanvasElements.captureCanvasCanvasElement.style.display = '';
                 }
-                captureCanvasElements.captureCanvasVideoElement.style.display = 'none';
+                captureCanvasElements.captureCanvasCanvasElement.style.zIndex = '9';
+                captureCanvasElements.captureCanvasVideoElement.style.zIndex = '-9999';
             }
             else {
-                if (captureCanvasElements.captureCanvasVideoElement.style.display !== '') {
-                    setTimeout(() => {
-                        captureCanvasElements.captureCanvasCanvasElement.style.display = 'none';
-                    }, 32);  
-               }
-                captureCanvasElements.captureCanvasVideoElement.style.display = '';
+                captureCanvasElements.captureCanvasCanvasElement.style.zIndex = '-9999';
+                captureCanvasElements.captureCanvasVideoElement.style.zIndex = '9';
             }
         });            
     }
@@ -308,7 +304,7 @@ class StyleManager {
                 captureCanvasVideoElement.style.border = 'yellow 2px dashed';
                 captureCanvasVideoElement.style.top = '0';
                 captureCanvasVideoElement.style.left = '0';
-
+                captureCanvasVideoElement.style.zIndex = '9';
                 captureCanvasContainerElement.appendChild(captureCanvasVideoElement);
 
                 let captureCanvasLabelElement = document.createElement('div');
@@ -364,7 +360,7 @@ class StyleManager {
                 captureCanvasCanvasElement.style.left = '0';
                 captureCanvasCanvasElement.style.border = 'none';
                 captureCanvasCanvasElement.style.display = 'none';  
-                captureCanvasCanvasElement.style.zIndex = '9';              
+                captureCanvasCanvasElement.style.zIndex = '8';              
                 captureCanvasContainerElement.appendChild(captureCanvasCanvasElement);
 
                 this.captureCanvas.appendChild(captureCanvasContainerElement);
