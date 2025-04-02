@@ -14,6 +14,7 @@ class StyleManager {
         this.renderState = "unsynced";
         this.renderStateUnsyncReason = "";
         this.trackToVideoElement = new Map();
+        this.debugMode = false;
     }
 
     addAudioTrack(audioTrack) {
@@ -126,7 +127,9 @@ class StyleManager {
             catch (error) {
                 console.error('Error making sure elements are in sync', error);
             }
-            outerThis.updateveLabels();
+            if (outerThis.debugMode) {
+                outerThis.updateVideoElementLabels();
+            }
             // Request the next frame
             requestAnimationFrame(beforeFrameRenders);
         }
@@ -142,7 +145,7 @@ class StyleManager {
         console.log('Started StyleManager');
     }
 
-    updateveLabels() {
+    updateVideoElementLabels() {
         this.videoElementToCaptureCanvasElements.forEach((captureCanvasElements) => {
             const currentLabel = captureCanvasElements.captureCanvasLabelElement.textContent;
             const pipeIndex = currentLabel.indexOf(' | ');
@@ -301,7 +304,12 @@ class StyleManager {
                 captureCanvasVideoElement.style.height = '100%';
                 captureCanvasVideoElement.style.objectFit = 'contain';
                 captureCanvasVideoElement.style.position = 'absolute';
-                captureCanvasVideoElement.style.border = 'yellow 2px dashed';
+                if (this.debugMode) {
+                    captureCanvasVideoElement.style.border = 'yellow 2px dashed';
+                }
+                else {
+                    captureCanvasVideoElement.style.border = 'none';
+                }
                 captureCanvasVideoElement.style.top = '0';
                 captureCanvasVideoElement.style.left = '0';
                 captureCanvasVideoElement.style.zIndex = '9';
@@ -319,37 +327,41 @@ class StyleManager {
                 captureCanvasLabelElement.style.bottom = '3px';
                 captureCanvasLabelElement.style.left = '5px';
                 captureCanvasLabelElement.style.zIndex = '10'; // Add this line to ensure label is above other elements
-                captureCanvasLabelElement.textContent = ' | ' + label + ' ' + Math.random().toString(36).substring(2, 15);
+                captureCanvasLabelElement.textContent = label;
                 captureCanvasContainerElement.appendChild(captureCanvasLabelElement);    
                 
-                // Add event listener for when video is paused
-                captureCanvasVideoElement.addEventListener('pause', () => {
-                    // Update the label with video dimensions
-                    const originalLabel = captureCanvasLabelElement.textContent;
-                    captureCanvasLabelElement.textContent = `${originalLabel} (VIDEO PAUSED)`;
-                });
-
-                // Add event listener for when video is ended
-                captureCanvasVideoElement.addEventListener('ended', () => {
-                    // Update the label with video dimensions
-                    const originalLabel = captureCanvasLabelElement.textContent;
-                    captureCanvasLabelElement.textContent = `${originalLabel} (VIDEO ENDED)`;
-                });
-
-                // Add event listener for when video metadata is loaded
-                captureCanvasVideoElement.addEventListener('playing', () => {
-                    // Update the label with video dimensions
-                    const originalLabel = captureCanvasLabelElement.textContent;
-                    const dimensions = `${captureCanvasVideoElement.videoWidth}x${captureCanvasVideoElement.videoHeight}`;
-                    captureCanvasLabelElement.textContent = `${originalLabel} (${dimensions})`;
-                });
-
                 // Add event listener for when track ends
-                const track = element.srcObject.getTracks()[0];
-                if (track) {
-                    track.addEventListener('ended', () => {
-                            captureCanvasLabelElement.textContent = `${captureCanvasLabelElement.textContent} (STOPPED)`;
+                if (this.debugMode) {
+                    captureCanvasLabelElement.textContent = ' | ' + label + ' ' + Math.random().toString(36).substring(2, 15);
+
+                    // Add event listener for when video is paused
+                    captureCanvasVideoElement.addEventListener('pause', () => {
+                        // Update the label with video dimensions
+                        const originalLabel = captureCanvasLabelElement.textContent;
+                        captureCanvasLabelElement.textContent = `${originalLabel} (VIDEO PAUSED)`;
                     });
+                
+                    // Add event listener for when video is ended
+                    captureCanvasVideoElement.addEventListener('ended', () => {
+                        // Update the label with video dimensions
+                        const originalLabel = captureCanvasLabelElement.textContent;
+                        captureCanvasLabelElement.textContent = `${originalLabel} (VIDEO ENDED)`;
+                    });
+
+                    // Add event listener for when video metadata is loaded
+                    captureCanvasVideoElement.addEventListener('playing', () => {
+                        // Update the label with video dimensions
+                        const originalLabel = captureCanvasLabelElement.textContent;
+                        const dimensions = `${captureCanvasVideoElement.videoWidth}x${captureCanvasVideoElement.videoHeight}`;
+                        captureCanvasLabelElement.textContent = `${originalLabel} (${dimensions})`;
+                    });
+
+                    const track = element.srcObject.getTracks()[0];
+                    if (track) {
+                        track.addEventListener('ended', () => {
+                            captureCanvasLabelElement.textContent = `${captureCanvasLabelElement.textContent} (STOPPED)`;
+                        });
+                    }
                 }
 
                 let captureCanvasCanvasElement = document.createElement('canvas');
@@ -376,9 +388,11 @@ class StyleManager {
             if (captureCanvasElements.captureCanvasVideoElement.srcObject !== element.srcObject) {
                 captureCanvasElements.captureCanvasVideoElement.srcObject = element.srcObject;
                 
-                // Update label to indicate source change
-                const originalLabel = captureCanvasElements.captureCanvasLabelElement.textContent;
-                captureCanvasElements.captureCanvasLabelElement.textContent = `${originalLabel} (SOURCE UPDATED)`;
+                if (this.debugMode) {
+                    // Update label to indicate source change
+                    const originalLabel = captureCanvasElements.captureCanvasLabelElement.textContent;
+                    captureCanvasElements.captureCanvasLabelElement.textContent = `${originalLabel} (SOURCE UPDATED)`;
+                }
             }
 
             captureCanvasElements.captureCanvasContainerElement.style.left = `${Math.round(dst_rect.left)}px`;
@@ -428,7 +442,12 @@ class StyleManager {
         const canvas = document.createElement('div');
         canvas.classList.add('captureCanvas');
         canvas.style.width = '1920px';
-        canvas.style.height = '240px';
+        if (this.debugMode) {
+            canvas.style.height = '240px';
+        }
+        else {
+            canvas.style.height = '1080px';
+        }
         canvas.style.backgroundColor = 'black';
         canvas.style.position = 'fixed';
         canvas.style.top = '0';
@@ -674,7 +693,7 @@ class StyleManager {
         }
 
         const canvasWidth = 1920;
-        const canvasHeight = 240;
+        const canvasHeight = this.debugMode ? 240 : 1080;
         let minX = Infinity;
         let minY = Infinity;
         let maxX = 0;
