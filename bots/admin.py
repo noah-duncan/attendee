@@ -105,4 +105,3 @@ class WebhookDeliveryAdmin(admin.ModelAdmin):
 
     list_display = ("idempotency_key", "webhook_url", "status", "created_at", "last_attempt_at", "succeeded_at", "event_type", "response_statuses", "attempt_count", "duration",)
     list_filter = ("status",)
-    # change_list_template = 'admin/webhook_delivery_changelist.html'
