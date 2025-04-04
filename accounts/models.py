@@ -17,6 +17,9 @@ class Organization(models.Model):
     def __str__(self):
         return self.name
 
+    def credits(self):
+        return self.centicredits / 100
+
 
 class User(AbstractUser):
     organization = models.ForeignKey(Organization, on_delete=models.PROTECT, null=False, related_name="users")

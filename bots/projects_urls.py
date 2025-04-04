@@ -21,9 +21,9 @@ urlpatterns = [
         name="project-bot-detail",
     ),
     path(
-        "<str:object_id>/settings",
-        projects_views.ProjectSettingsView.as_view(),
-        name="project-settings",
+        "<str:object_id>/credentials",
+        projects_views.ProjectCredentialsView.as_view(),
+        name="project-credentials",
     ),
     path(
         "<str:object_id>/keys",
@@ -59,6 +59,21 @@ urlpatterns = [
         "<str:object_id>/webhooks/<str:webhook_object_id>/delete/",
         projects_views.DeleteWebhookView.as_view(),
         name="delete-webhook",
+    ),
+    path(
+        "<str:object_id>/billing/",
+        projects_views.ProjectBillingView.as_view(),
+        name="project-billing",
+    ),
+    path(
+        "<str:object_id>/billing/checkout/",
+        projects_views.CreateCheckoutSessionView.as_view(),
+        name="create-checkout-session",
+    ),
+    path(
+        "<str:object_id>/billing/checkout/success/",
+        projects_views.CheckoutSuccessView.as_view(),
+        name="checkout-success",
     ),
     # Don't put anything after this, it will redirect to the dashboard
     path(

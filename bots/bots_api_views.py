@@ -174,7 +174,7 @@ class BotCreateView(APIView):
             zoom_credentials = project.credentials.filter(credential_type=Credentials.CredentialTypes.ZOOM_OAUTH).first()
 
             if not zoom_credentials:
-                settings_url = request.build_absolute_uri(reverse("bots:project-settings", kwargs={"object_id": project.object_id}))
+                settings_url = request.build_absolute_uri(reverse("bots:project-credentials", kwargs={"object_id": project.object_id}))
                 return Response(
                     {"error": f"Zoom App credentials are required to create a Zoom bot. Please add Zoom credentials at {settings_url}"},
                     status=status.HTTP_400_BAD_REQUEST,
@@ -262,7 +262,7 @@ class SpeechView(APIView):
         google_tts_credentials = bot.project.credentials.filter(credential_type=Credentials.CredentialTypes.GOOGLE_TTS).first()
 
         if not google_tts_credentials:
-            settings_url = request.build_absolute_uri(reverse("bots:project-settings", kwargs={"object_id": bot.project.object_id}))
+            settings_url = request.build_absolute_uri(reverse("bots:project-credentials", kwargs={"object_id": bot.project.object_id}))
             return Response(
                 {"error": f"Google Text-to-Speech credentials are required. Please add credentials at {settings_url}"},
                 status=status.HTTP_400_BAD_REQUEST,

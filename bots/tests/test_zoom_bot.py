@@ -1,12 +1,12 @@
 import base64
 import json
-import os
 import threading
 import time
 from unittest.mock import MagicMock, call, patch
 
 import zoom_meeting_sdk as zoom
 from django.db import connection
+from django.test import override_settings
 from django.test.testcases import TransactionTestCase
 
 from bots.bot_controller import BotController
@@ -304,9 +304,20 @@ class TestZoomBot(TransactionTestCase):
     def setUpClass(cls):
         super().setUpClass()
 
-        # Set required environment variables
-        os.environ["AWS_RECORDING_STORAGE_BUCKET_NAME"] = "test-bucket"
-        os.environ["CHARGE_CREDITS_FOR_BOTS"] = "true"
+        # Instead of setting environment variables directly:
+        # os.environ["AWS_RECORDING_STORAGE_BUCKET_NAME"] = "test-bucket"
+        # os.environ["CHARGE_CREDITS_FOR_BOTS"] = "true"
+
+        # The settings have already been loaded, so we need to override them
+        # These will be applied to all tests in this class
+        cls.settings_override = override_settings(AWS_RECORDING_STORAGE_BUCKET_NAME="test-bucket", CHARGE_CREDITS_FOR_BOTS=True)
+        cls.settings_override.enable()
+
+    @classmethod
+    def tearDownClass(cls):
+        # Clean up the settings override when done
+        cls.settings_override.disable()
+        super().tearDownClass()
 
     def setUp(self):
         # Recreate organization and project for each test

@@ -1,17 +1,24 @@
 import base64
 import logging
+import math
+import os
 
+import stripe
+from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import models
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views import View
+from django.views.generic.list import ListView
 
 from .models import (
     ApiKey,
     Bot,
     BotStates,
     Credentials,
+    CreditTransaction,
     Project,
     RecordingStates,
     Utterance,
@@ -21,6 +28,7 @@ from .models import (
     WebhookSubscription,
     WebhookTriggerTypes,
 )
+from .stripe_utils import process_checkout_session_completed
 from .utils import generate_recordings_json_for_bot_detail_view
 
 logger = logging.getLogger(__name__)
@@ -30,6 +38,7 @@ class ProjectUrlContextMixin:
     def get_project_context(self, object_id, project):
         return {
             "project": project,
+            "charge_credits_for_bots_setting": settings.CHARGE_CREDITS_FOR_BOTS,
         }
 
 
@@ -162,7 +171,7 @@ class CreateCredentialsView(LoginRequiredMixin, ProjectUrlContextMixin, View):
             return HttpResponse(str(e), status=400)
 
 
-class ProjectSettingsView(LoginRequiredMixin, ProjectUrlContextMixin, View):
+class ProjectCredentialsView(LoginRequiredMixin, ProjectUrlContextMixin, View):
     def get(self, request, object_id):
         project = get_object_or_404(Project, object_id=object_id, organization=request.user.organization)
 
@@ -185,7 +194,7 @@ class ProjectSettingsView(LoginRequiredMixin, ProjectUrlContextMixin, View):
             }
         )
 
-        return render(request, "projects/project_settings.html", context)
+        return render(request, "projects/project_credentials.html", context)
 
 
 class ProjectBotsView(LoginRequiredMixin, ProjectUrlContextMixin, View):
@@ -229,6 +238,7 @@ class ProjectBotDetailView(LoginRequiredMixin, ProjectUrlContextMixin, View):
                 "recordings": generate_recordings_json_for_bot_detail_view(bot),
                 "webhook_delivery_attempts": webhook_delivery_attempts,
                 "WebhookDeliveryAttemptStatus": WebhookDeliveryAttemptStatus,
+                "credits_consumed": -sum([t.credits_delta() for t in bot.credit_transactions.all()]) if bot.credit_transactions.exists() else None,
             }
         )
 
@@ -299,3 +309,101 @@ class DeleteWebhookView(LoginRequiredMixin, ProjectUrlContextMixin, View):
         context["webhooks"] = WebhookSubscription.objects.filter(project=webhook.project).order_by("-created_at")
         context["webhook_options"] = [trigger_type for trigger_type in WebhookTriggerTypes]
         return render(request, "projects/project_webhooks.html", context)
+
+
+class ProjectBillingView(LoginRequiredMixin, ProjectUrlContextMixin, ListView):
+    template_name = "projects/project_billing.html"
+    context_object_name = "transactions"
+    paginate_by = 20
+
+    def get_queryset(self):
+        project = get_object_or_404(Project, object_id=self.kwargs["object_id"], organization=self.request.user.organization)
+        return CreditTransaction.objects.filter(organization=project.organization).order_by("-created_at")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        project = get_object_or_404(Project, object_id=self.kwargs["object_id"], organization=self.request.user.organization)
+        context.update(self.get_project_context(self.kwargs["object_id"], project))
+        return context
+
+
+class CheckoutSuccessView(LoginRequiredMixin, ProjectUrlContextMixin, View):
+    def get(self, request, object_id):
+        session_id = request.GET.get("session_id")
+        if not session_id:
+            return HttpResponse("No session ID provided", status=400)
+
+        # Retrieve the session details
+        try:
+            checkout_session = stripe.checkout.Session.retrieve(session_id, api_key=os.getenv("STRIPE_SECRET_KEY"))
+        except Exception as e:
+            return HttpResponse(f"Error retrieving session details: {e}", status=400)
+
+        process_checkout_session_completed(checkout_session)
+
+        return redirect(reverse("bots:project-billing", kwargs={"object_id": object_id}))
+
+
+class CreateCheckoutSessionView(LoginRequiredMixin, ProjectUrlContextMixin, View):
+    def post(self, request, object_id):
+        # Get the purchase amount from the form submission
+        try:
+            purchase_amount = float(request.POST.get("purchase_amount", 50.0))
+            if purchase_amount < 1:
+                purchase_amount = 1.0
+        except (ValueError, TypeError):
+            purchase_amount = 50.0  # Default fallback
+
+        # Calculate credits based on tiered pricing
+        if purchase_amount <= 200:
+            # Tier 1: $0.50 per credit
+            credit_amount = purchase_amount / 0.5
+        elif purchase_amount <= 1000:
+            # Tier 2: $0.40 per credit
+            credit_amount = purchase_amount / 0.4
+        else:
+            # Tier 3: $0.35 per credit
+            credit_amount = purchase_amount / 0.35
+            
+        # Floor the credit amount to ensure whole credits
+        credit_amount = math.floor(credit_amount)
+        
+        # Ensure at least 1 credit
+        if credit_amount < 1:
+            credit_amount = 1
+
+        # Convert purchase amount to cents for Stripe
+        unit_amount = int(purchase_amount * 100)  # in cents
+
+        if unit_amount > 1000000:  # $10000 limit
+            return HttpResponse("The maximum purchase amount is $10000.", status=400)
+
+        # Create checkout session
+        checkout_session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[
+                {
+                    "price_data": {
+                        "currency": "usd",
+                        "product_data": {
+                            "name": f"{credit_amount} Attendee Credits",
+                            "description": f"Purchase {credit_amount} Attendee credits for your account",
+                        },
+                        "unit_amount": unit_amount,
+                    },
+                    "quantity": 1,
+                }
+            ],
+            mode="payment",
+            success_url=request.build_absolute_uri(reverse("bots:checkout-success", kwargs={"object_id": object_id})) + "?session_id={CHECKOUT_SESSION_ID}",
+            cancel_url=request.build_absolute_uri(reverse("bots:project-billing", kwargs={"object_id": object_id})),
+            metadata={
+                "organization_id": str(request.user.organization.id),
+                "user_id": str(request.user.id),
+                "credit_amount": str(credit_amount),
+            },
+            api_key=os.getenv("STRIPE_SECRET_KEY"),
+        )
+
+        # Redirect directly to the Stripe checkout page
+        return redirect(checkout_session.url)

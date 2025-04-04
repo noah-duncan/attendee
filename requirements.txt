@@ -86,3 +86,4 @@ rsa==4.9
 ruff==0.9.6
 durationpy==0.9
 kubernetes==32.0.0
+stripe==11.6.0

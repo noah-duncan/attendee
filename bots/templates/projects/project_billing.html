@@ -1,0 +1,194 @@
+{% extends 'projects/sidebar.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Billing</h2>
+    
+    <div class="card mb-4">
+        <div class="card-body">
+            <p class="mb-1">Credit Balance</p>
+            <h3 class="{% if project.organization.credits < 0 %}text-danger{% elif project.organization.credits > 0 %}text-success{% endif %}">
+                {{ project.organization.credits|floatformat:2|default:"0.00" }} credits
+            </h3>
+            <p class="text-muted small">1 credit = 1 hour of bot usage</p>
+            
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#purchaseCreditsModal">
+                Purchase Credits
+            </button>
+            
+            <div class="modal fade" id="purchaseCreditsModal" tabindex="-1" aria-labelledby="purchaseCreditsModalLabel" aria-hidden="true">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="purchaseCreditsModalLabel">Purchase Credits</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <form id="purchaseCreditsForm" action="{% url 'projects:create-checkout-session' project.object_id %}" method="post">
+                                {% csrf_token %}
+                                <div class="mb-3">
+                                    <label for="purchaseAmount" class="form-label">Purchase Amount ($)</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">$</span>
+                                        <input type="number" class="form-control" id="purchaseAmount" name="purchase_amount" 
+                                               min="1" value="50" required>
+                                    </div>
+                                </div>
+                                <div class="alert alert-info">
+                                    <div>
+                                        You'll receive <span id="calculatedCredits">100</span> credits
+                                    </div>
+                                    <div class="small text-muted mb-2">1 credit = 1 hour of bot usage</div>
+                                    
+                                    <div class="small">
+                                        <strong>Volume Discounts:</strong>
+                                        <ul class="mb-0 ps-3 mt-1">
+                                            <li>$0-$200: $0.50 per credit</li>
+                                            <li>$200-$1000: $0.40 per credit</li>
+                                            <li>$1000+: $0.35 per credit</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" form="purchaseCreditsForm" class="btn btn-primary">Proceed to Checkout</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <h4>Transaction History</h4>
+    
+    {% if transactions %}
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Description</th>
+                    <th>Bot</th>
+                    <th>Amount</th>
+                    <th>Balance</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for transaction in transactions %}
+                <tr>
+                    <td>{{ transaction.created_at|date:"M d, Y H:i" }}</td>
+                    <td>{{ transaction.description|default:"--" }}</td>
+                    <td>
+                        {% if transaction.bot %}
+                        <a href="{% url 'projects:project-bot-detail' project.object_id transaction.bot.object_id %}">
+                            {{ transaction.bot.name }}
+                        </a>
+                        {% else %}
+                        N/A
+                        {% endif %}
+                    </td>
+                    <td class="{% if transaction.credits_delta < 0 %}text-danger{% else %}text-success{% endif %}">
+                        {{ transaction.credits_delta|floatformat:2 }}
+                    </td>
+                    <td>{{ transaction.credits_after|floatformat:2 }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Pagination -->
+    {% if is_paginated %}
+    <nav aria-label="Transaction history pagination">
+        <ul class="pagination justify-content-center">
+            {% if page_obj.has_previous %}
+            <li class="page-item">
+                <a class="page-link" href="?page=1">&laquo; First</a>
+            </li>
+            <li class="page-item">
+                <a class="page-link" href="?page={{ page_obj.previous_page_number }}">Previous</a>
+            </li>
+            {% endif %}
+
+            {% for i in paginator.page_range %}
+                {% if page_obj.number == i %}
+                <li class="page-item active">
+                    <span class="page-link">{{ i }}</span>
+                </li>
+                {% elif i > page_obj.number|add:'-3' and i < page_obj.number|add:'3' %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ i }}">{{ i }}</a>
+                </li>
+                {% endif %}
+            {% endfor %}
+
+            {% if page_obj.has_next %}
+            <li class="page-item">
+                <a class="page-link" href="?page={{ page_obj.next_page_number }}">Next</a>
+            </li>
+            <li class="page-item">
+                <a class="page-link" href="?page={{ paginator.num_pages }}">Last &raquo;</a>
+            </li>
+            {% endif %}
+        </ul>
+    </nav>
+    {% endif %}
+    
+    {% else %}
+    <div class="alert alert-info">
+        No transaction history available.
+    </div>
+    {% endif %}
+</div>
+
+<script>
+    // Function that contains all your billing logic
+    function initializeBillingForm() {
+        const purchaseAmountInput = document.getElementById('purchaseAmount');
+        const calculatedCredits = document.getElementById('calculatedCredits');
+        
+        // Don't proceed if elements aren't found (prevents errors)
+        if (!purchaseAmountInput || !calculatedCredits) return;
+        
+        // Function to calculate credits based on tiered pricing
+        function calculateCredits(amount) {
+            let credits = 0;
+            
+            if (amount <= 200) {
+                // Tier 1: $0.50 per credit
+                credits = amount / 0.5;
+            } else if (amount <= 1000) {
+                // Tier 2: $0.40 per credit
+                credits = amount / 0.4;
+            } else {
+                // Tier 3: $0.35 per credit
+                credits = amount / 0.35;
+            }
+            
+            return credits;
+        }
+        
+        // Function to update the credits based on purchase amount
+        function updateCredits() {
+            const amount = parseFloat(purchaseAmountInput.value) || 0;
+            const credits = calculateCredits(amount);
+            calculatedCredits.textContent = Math.floor(credits);
+        }
+        
+        // Update credits on input change
+        purchaseAmountInput.addEventListener('input', updateCredits);
+        
+        // Initialize with default value
+        updateCredits();
+    }
+
+    // Call on regular page load
+    document.addEventListener('DOMContentLoaded', initializeBillingForm);
+    
+    // Call when HTMX content is loaded
+    document.addEventListener('htmx:afterSwap', initializeBillingForm);
+</script>
+
+{% endblock %}
