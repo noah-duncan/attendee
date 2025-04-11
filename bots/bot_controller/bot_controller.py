@@ -8,6 +8,7 @@ import gi
 import redis
 from django.core.files.base import ContentFile
 from django.utils import timezone
+from django.conf import settings
 
 from bots.bot_adapter import BotAdapter
 from bots.models import (
@@ -233,6 +234,7 @@ class BotController:
             file_uploader = FileUploader(
                 os.environ.get("AWS_RECORDING_STORAGE_BUCKET_NAME"),
                 self.get_recording_filename(),
+                s3_path=settings.AWS_RECORDING_STORAGE_PATH,
             )
             file_uploader.upload_file(self.get_recording_file_location())
             file_uploader.wait_for_upload()
