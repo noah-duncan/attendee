@@ -16,6 +16,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from django.utils.dateparse import parse_datetime
 from .authentication import ApiKeyAuthentication
 from .models import (
     Bot,
@@ -585,6 +586,14 @@ class TranscriptView(APIView):
                 description="Bot ID",
                 examples=[OpenApiExample("Bot ID Example", value="bot_xxxxxxxxxxx")],
             ),
+            OpenApiParameter(
+                name="updated_after",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Only return transcript entries updated or created after this time (ISO 8601 format). Useful when polling for updates to the transcript.",
+                required=False,
+                examples=[OpenApiExample("DateTime Example", value="2024-01-18T12:34:56Z")],
+            ),
         ],
         tags=["Bots"],
     )
@@ -600,7 +609,25 @@ class TranscriptView(APIView):
                 )
 
             # Get all utterances with transcriptions, sorted by timeline
-            utterances = Utterance.objects.select_related("participant").filter(recording=recording, transcription__isnull=False).order_by("timestamp_ms")
+            utterances_query = Utterance.objects.select_related("participant").filter(
+                recording=recording, 
+                transcription__isnull=False
+            )
+            
+            # Apply updated_after filter if provided
+            updated_after = request.query_params.get('updated_after')
+            if updated_after:
+                updated_after_datetime = parse_datetime(str(updated_after))
+                if not updated_after_datetime:
+                    return Response(
+                        {"error": "Invalid updated_after format. Use ISO 8601 format (e.g., 2024-01-18T12:34:56Z)"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                utterances_query = utterances_query.filter(updated_at__gt=updated_after_datetime)
+                
+            
+            # Apply ordering
+            utterances = utterances_query.order_by("timestamp_ms")
 
             # Format the response, skipping empty transcriptions
             transcript_data = [
