@@ -428,6 +428,17 @@ paths:
           BotIDExample:
             value: bot_xxxxxxxxxxx
             summary: Bot ID Example
+      - in: query
+        name: updated_after
+        schema:
+          type: string
+          format: ISO 8601 datetime
+        description: Only return transcript entries updated or created after this
+          time. Useful when polling for updates to the transcript.
+        examples:
+          DateTimeExample:
+            value: '2024-01-18T12:34:56Z'
+            summary: DateTime Example
       tags:
       - Bots
       security:

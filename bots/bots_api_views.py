@@ -588,9 +588,9 @@ class TranscriptView(APIView):
             ),
             OpenApiParameter(
                 name="updated_after",
-                type=str,
+                type={"type": "string", "format": "ISO 8601 datetime"},
                 location=OpenApiParameter.QUERY,
-                description="Only return transcript entries updated or created after this time (ISO 8601 format). Useful when polling for updates to the transcript.",
+                description="Only return transcript entries updated or created after this time. Useful when polling for updates to the transcript.",
                 required=False,
                 examples=[OpenApiExample("DateTime Example", value="2024-01-18T12:34:56Z")],
             ),
