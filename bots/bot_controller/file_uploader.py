@@ -10,16 +10,27 @@ logger.setLevel(logging.INFO)
 
 
 class FileUploader:
-    def __init__(self, bucket, key):
+    def __init__(self, bucket, key, s3_path=None):
         """Initialize the FileUploader with an S3 bucket name.
 
         Args:
             bucket (str): The name of the S3 bucket to upload to
             key (str): The name of the to be stored file
+            s3_path (str, optional): Path within the bucket to store the file (folder prefix)
         """
         self.s3_client = boto3.client("s3", endpoint_url=os.getenv("AWS_ENDPOINT_URL"))
         self.bucket = bucket
-        self.key = key
+        
+        # Apply s3_path prefix if provided
+        if s3_path:
+            # Ensure the path has trailing slash but not leading slash
+            s3_path = s3_path.strip('/')
+            if s3_path:
+                s3_path = f"{s3_path}/"
+            self.key = f"{s3_path}{key}"
+        else:
+            self.key = key
+        
         self._upload_thread = None
 
     def upload_file(self, file_path: str, callback=None):
