@@ -1504,14 +1504,47 @@ if (window.initialData.addClickRipple) {
 
 
 function turnOnCamera() {
-    // Click camera button to turn it on
-    const cameraButton = document.querySelector('button[aria-label="Turn camera on"]');
-    if (cameraButton) {
-        console.log("Clicking the camera button to turn it on");
-        cameraButton.click();
-    } else {
-        console.log("Camera button not found");
+    let retries = 0;
+    const maxRetries = 10;
+    
+    function attemptToTurnOnCamera() {
+        // Click camera button to turn it on
+        const cameraButton = document.querySelector('button[aria-label="Turn camera on"]');
+        if (cameraButton) {
+            console.log("Clicking the camera button to turn it on");
+            cameraButton.click();
+            return true;
+        } else {
+            console.log(`Camera button not found (attempt ${retries + 1}/${maxRetries})`);
+            ws.sendJson({
+                type: 'CameraOnFailed',
+                error: 'Camera button not found'
+            });
+            return false;
+        }
     }
+    
+    function retryTurnOnCamera() {
+        if (attemptToTurnOnCamera()) {
+            return; // Success
+        }
+        
+        retries++;
+        
+        if (retries < maxRetries) {
+            // Try again after a short delay
+            setTimeout(retryTurnOnCamera, 1000);
+        } else {
+            // All attempts failed
+            console.log("All attempts to turn on camera failed");
+            ws.sendJson({
+                type: 'CameraOnFailed',
+                error: 'Camera button not found after 10 attempts'
+            });
+        }
+    }
+    
+    retryTurnOnCamera();
 }
 
 function turnOnMicAndCamera() {
