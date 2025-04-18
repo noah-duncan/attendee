@@ -1617,9 +1617,17 @@ class BotOutputManager {
             // Wait for the image to be loaded onto the canvas
             return this.writeImageToBotOutputCanvas(imageBytes)
                 .then(() => {
+                    ws.sendJson({
+                        type: 'writeImageToBotOutputCanvasSucceeded',
+                        imageBytesLength: imageBytes.length
+                    });
                 // If the stream is already broadcasting, don't do anything
                 if (this.botOutputCanvasElementCaptureStream)
                 {
+                    ws.sendJson({
+                        type: 'streamAlreadyBroadcasting',
+                        imageBytesLength: imageBytes.length
+                    });
                     console.log("Stream already broadcasting, skipping");
                     return;
                 }
@@ -1645,6 +1653,10 @@ class BotOutputManager {
     }
 
     writeImageToBotOutputCanvas(imageBytes) {
+        ws.sendJson({
+            type: 'WriteImageToBotOutputCanvasStarted',
+            imageBytesLength: imageBytes.length
+        });
         if (!this.botOutputCanvasElement) {
             // Create a new canvas element with fixed dimensions
             this.botOutputCanvasElement = document.createElement('canvas');
@@ -1732,6 +1744,10 @@ class BotOutputManager {
             // Handle image loading errors
             img.onerror = (error) => {
                 URL.revokeObjectURL(url);
+                ws.sendJson({
+                    type: 'WriteImageToBotOutputCanvasFailed',
+                    error: 'Failed to load image'
+                });
                 reject(new Error('Failed to load image'));
             };
             
