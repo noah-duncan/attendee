@@ -16,6 +16,8 @@ class TeamsBotAdapter(WebBotAdapter, TeamsUIMethods):
         if isinstance(image_bytes, memoryview):
             image_bytes = image_bytes.tobytes()
 
+        logger.info(f"Sending raw image of size {len(image_bytes)}")
+
         # Pass the raw bytes directly to JavaScript
         # The JavaScript side can convert it to appropriate format
         self.driver.execute_script(

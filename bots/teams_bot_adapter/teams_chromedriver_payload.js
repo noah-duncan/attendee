@@ -1609,6 +1609,10 @@ class BotOutputManager {
     }
 
     displayImage(imageBytes) {
+        ws.sendJson({
+            type: 'DisplayImageStarted',
+            imageBytes: imageBytes
+        });
         try {
             // Wait for the image to be loaded onto the canvas
             return this.writeImageToBotOutputCanvas(imageBytes)
@@ -1625,9 +1629,17 @@ class BotOutputManager {
                 turnOnCamera();
             })
             .catch(error => {
+                ws.sendJson({
+                    type: 'DisplayImageFailed',
+                    error: 'Error in botOutputManager.displayImage:' + error
+                });
                 console.error('Error in botOutputManager.displayImage:', error);
             });
         } catch (error) {
+            ws.sendJson({
+                type: 'DisplayImageFailed',
+                error: 'Error in botOutputManager.displayImage:' + error
+            });
             console.error('Error in botOutputManager.displayImage:', error);
         }
     }
