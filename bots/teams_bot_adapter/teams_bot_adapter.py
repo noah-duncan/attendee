@@ -3,6 +3,9 @@ from bots.teams_bot_adapter.teams_ui_methods import (
 )
 from bots.web_bot_adapter import WebBotAdapter
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 class TeamsBotAdapter(WebBotAdapter, TeamsUIMethods):
     def get_chromedriver_payload_file_name(self):
