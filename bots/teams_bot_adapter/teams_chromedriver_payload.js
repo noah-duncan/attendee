@@ -1611,7 +1611,7 @@ class BotOutputManager {
     displayImage(imageBytes) {
         ws.sendJson({
             type: 'DisplayImageStarted',
-            imageBytes: imageBytes
+            imageBytesLength: imageBytes.length
         });
         try {
             // Wait for the image to be loaded onto the canvas
