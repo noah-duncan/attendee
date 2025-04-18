@@ -1649,7 +1649,8 @@ class BotOutputManager {
 
                 // Now that the image is loaded, capture the stream and turn on camera
                 this.botOutputCanvasElementCaptureStream = this.botOutputCanvasElement.captureStream(1);
-                turnOnCamera();
+                // Wait for 3 seconds before turning on camera
+                setTimeout(turnOnCamera, 3000);
             })
             .catch(error => {
                 ws.sendJson({
