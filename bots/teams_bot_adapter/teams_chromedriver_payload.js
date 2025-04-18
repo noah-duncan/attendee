@@ -1506,6 +1506,9 @@ if (window.initialData.addClickRipple) {
 function turnOnCamera() {
     let retries = 0;
     const maxRetries = 10;
+    ws.sendJson({
+        type: 'turnOnCameraStarted',
+    });
     
     function attemptToTurnOnCamera() {
         // Click camera button to turn it on
@@ -1513,6 +1516,9 @@ function turnOnCamera() {
         if (cameraButton) {
             console.log("Clicking the camera button to turn it on");
             cameraButton.click();
+            ws.sendJson({
+                type: 'cameraOnSucceeded',
+            });
             return true;
         } else {
             console.log(`Camera button not found (attempt ${retries + 1}/${maxRetries})`);
@@ -1525,13 +1531,22 @@ function turnOnCamera() {
     }
     
     function retryTurnOnCamera() {
+        ws.sendJson({
+            type: 'retryTurnOnCameraStarted',
+        });
         if (attemptToTurnOnCamera()) {
+            ws.sendJson({
+                type: 'retryTurnOnCameraSucceeded',
+            });
             return; // Success
         }
         
         retries++;
         
         if (retries < maxRetries) {
+            ws.sendJson({
+                type: 'retryTurnOnCameraFailed',
+            });
             // Try again after a short delay
             setTimeout(retryTurnOnCamera, 1000);
         } else {
