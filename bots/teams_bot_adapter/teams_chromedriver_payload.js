@@ -631,6 +631,9 @@ class WebSocketClient {
   
     enableMediaSending() {
       this.mediaSendingEnabled = true;
+      this.sendJson({
+        type: 'enableMediaSending',
+      });
       //this.startBlackFrameTimer();
     }
   
