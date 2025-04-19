@@ -3,6 +3,9 @@ from bots.teams_bot_adapter.teams_ui_methods import (
 )
 from bots.web_bot_adapter import WebBotAdapter
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 class TeamsBotAdapter(WebBotAdapter, TeamsUIMethods):
     def get_chromedriver_payload_file_name(self):
@@ -15,6 +18,8 @@ class TeamsBotAdapter(WebBotAdapter, TeamsUIMethods):
         # If we have a memoryview, convert it to bytes
         if isinstance(image_bytes, memoryview):
             image_bytes = image_bytes.tobytes()
+
+        logger.info(f"Sending raw image of size {len(image_bytes)}")
 
         # Pass the raw bytes directly to JavaScript
         # The JavaScript side can convert it to appropriate format

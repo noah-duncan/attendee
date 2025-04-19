@@ -631,12 +631,15 @@ class WebSocketClient {
   
     enableMediaSending() {
       this.mediaSendingEnabled = true;
-      this.startBlackFrameTimer();
+      this.sendJson({
+        type: 'enableMediaSending',
+      });
+      //this.startBlackFrameTimer();
     }
   
     disableMediaSending() {
       this.mediaSendingEnabled = false;
-      this.stopBlackFrameTimer();
+     // this.stopBlackFrameTimer();
     }
   
     handleMessage(data) {
@@ -1359,7 +1362,7 @@ new RTCInterceptor({
                 realConsole?.log('got audio track');
                 realConsole?.log(event);
                 try {
-                    handleAudioTrack(event);
+                    //handleAudioTrack(event);
                 } catch (e) {
                     realConsole?.log('Error handling audio track:', e);
                 }
@@ -1368,7 +1371,7 @@ new RTCInterceptor({
                 realConsole?.log('got video track');
                 realConsole?.log(event);
                 try {
-                    handleVideoTrack(event);
+                    //handleVideoTrack(event);
                 } catch (e) {
                     realConsole?.log('Error handling video track:', e);
                 }
@@ -1504,14 +1507,62 @@ if (window.initialData.addClickRipple) {
 
 
 function turnOnCamera() {
-    // Click camera button to turn it on
-    const cameraButton = document.querySelector('button[aria-label="Turn camera on"]');
-    if (cameraButton) {
-        console.log("Clicking the camera button to turn it on");
-        cameraButton.click();
-    } else {
-        console.log("Camera button not found");
+    let retries = 0;
+    const maxRetries = 10;
+    ws.sendJson({
+        type: 'turnOnCameraStarted',
+    });
+    
+    function attemptToTurnOnCamera() {
+        // Click camera button to turn it on
+        const cameraButton = document.querySelector('button[aria-label="Turn camera on"]');
+        if (cameraButton) {
+            console.log("Clicking the camera button to turn it on");
+            cameraButton.click();
+            ws.sendJson({
+                type: 'cameraOnSucceeded',
+            });
+            return true;
+        } else {
+            console.log(`Camera button not found (attempt ${retries + 1}/${maxRetries})`);
+            ws.sendJson({
+                type: 'CameraOnFailed',
+                error: 'Camera button not found'
+            });
+            return false;
+        }
     }
+    
+    function retryTurnOnCamera() {
+        ws.sendJson({
+            type: 'retryTurnOnCameraStarted',
+        });
+        if (attemptToTurnOnCamera()) {
+            ws.sendJson({
+                type: 'retryTurnOnCameraSucceeded',
+            });
+            return; // Success
+        }
+        
+        retries++;
+        
+        if (retries < maxRetries) {
+            ws.sendJson({
+                type: 'retryTurnOnCameraFailed',
+            });
+            // Try again after a short delay
+            setTimeout(retryTurnOnCamera, 1000);
+        } else {
+            // All attempts failed
+            console.log("All attempts to turn on camera failed");
+            ws.sendJson({
+                type: 'CameraOnFailed',
+                error: 'Camera button not found after 10 attempts'
+            });
+        }
+    }
+    
+    retryTurnOnCamera();
 }
 
 function turnOnMicAndCamera() {
@@ -1576,30 +1627,55 @@ class BotOutputManager {
     }
 
     displayImage(imageBytes) {
+        ws.sendJson({
+            type: 'DisplayImageStarted',
+            imageBytesLength: imageBytes.length
+        });
         try {
             // Wait for the image to be loaded onto the canvas
             return this.writeImageToBotOutputCanvas(imageBytes)
                 .then(() => {
+                    ws.sendJson({
+                        type: 'writeImageToBotOutputCanvasSucceeded',
+                        imageBytesLength: imageBytes.length
+                    });
                 // If the stream is already broadcasting, don't do anything
                 if (this.botOutputCanvasElementCaptureStream)
                 {
+                    ws.sendJson({
+                        type: 'streamAlreadyBroadcasting',
+                        imageBytesLength: imageBytes.length
+                    });
                     console.log("Stream already broadcasting, skipping");
                     return;
                 }
 
                 // Now that the image is loaded, capture the stream and turn on camera
                 this.botOutputCanvasElementCaptureStream = this.botOutputCanvasElement.captureStream(1);
-                turnOnCamera();
+                // Wait for 3 seconds before turning on camera
+                setTimeout(turnOnCamera, 3000);
             })
             .catch(error => {
+                ws.sendJson({
+                    type: 'DisplayImageFailed',
+                    error: 'Error in botOutputManager.displayImage:' + error
+                });
                 console.error('Error in botOutputManager.displayImage:', error);
             });
         } catch (error) {
+            ws.sendJson({
+                type: 'DisplayImageFailed',
+                error: 'Error in botOutputManager.displayImage:' + error
+            });
             console.error('Error in botOutputManager.displayImage:', error);
         }
     }
 
     writeImageToBotOutputCanvas(imageBytes) {
+        ws.sendJson({
+            type: 'WriteImageToBotOutputCanvasStarted',
+            imageBytesLength: imageBytes.length
+        });
         if (!this.botOutputCanvasElement) {
             // Create a new canvas element with fixed dimensions
             this.botOutputCanvasElement = document.createElement('canvas');
@@ -1687,6 +1763,10 @@ class BotOutputManager {
             // Handle image loading errors
             img.onerror = (error) => {
                 URL.revokeObjectURL(url);
+                ws.sendJson({
+                    type: 'WriteImageToBotOutputCanvasFailed',
+                    error: 'Failed to load image'
+                });
                 reject(new Error('Failed to load image'));
             };
             

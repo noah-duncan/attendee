@@ -437,8 +437,6 @@ class WebBotAdapter(BotAdapter):
 
         if self.start_recording_screen_callback:
             sleep(2)
-            if self.debug_screen_recorder:
-                self.debug_screen_recorder.stop()
             self.start_recording_screen_callback(self.display_var_for_debug_recording)
 
         self.media_sending_enable_timestamp_ms = time.time() * 1000
@@ -461,6 +459,9 @@ class WebBotAdapter(BotAdapter):
             self.left_meeting = True
 
     def cleanup(self):
+        if self.debug_screen_recorder:
+            self.debug_screen_recorder.stop()
+
         if self.stop_recording_screen_callback:
             self.stop_recording_screen_callback()
 
@@ -519,6 +520,8 @@ class WebBotAdapter(BotAdapter):
                 logger.info(f"Auto-leaving meeting because there was only one participant in the meeting for {self.automatic_leave_configuration.only_participant_in_meeting_threshold_seconds} seconds")
                 self.send_message_callback({"message": self.Messages.ADAPTER_REQUESTED_BOT_LEAVE_MEETING, "leave_reason": BotAdapter.LEAVE_REASON.AUTO_LEAVE_ONLY_PARTICIPANT_IN_MEETING})
                 return
+
+        return
 
         if not self.silence_detection_activated and self.joined_at is not None and time.time() - self.joined_at > self.automatic_leave_configuration.silence_activate_after_seconds:
             self.silence_detection_activated = True
