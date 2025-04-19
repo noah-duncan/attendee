@@ -631,12 +631,12 @@ class WebSocketClient {
   
     enableMediaSending() {
       this.mediaSendingEnabled = true;
-      this.startBlackFrameTimer();
+      //this.startBlackFrameTimer();
     }
   
     disableMediaSending() {
       this.mediaSendingEnabled = false;
-      this.stopBlackFrameTimer();
+     // this.stopBlackFrameTimer();
     }
   
     handleMessage(data) {
