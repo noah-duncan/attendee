@@ -1359,7 +1359,7 @@ new RTCInterceptor({
                 realConsole?.log('got audio track');
                 realConsole?.log(event);
                 try {
-                    handleAudioTrack(event);
+                    //handleAudioTrack(event);
                 } catch (e) {
                     realConsole?.log('Error handling audio track:', e);
                 }
@@ -1368,7 +1368,7 @@ new RTCInterceptor({
                 realConsole?.log('got video track');
                 realConsole?.log(event);
                 try {
-                    handleVideoTrack(event);
+                    //handleVideoTrack(event);
                 } catch (e) {
                     realConsole?.log('Error handling video track:', e);
                 }
