@@ -4,7 +4,9 @@ import os
 
 import redis
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.urls import reverse
+from django.utils.dateparse import parse_datetime
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
@@ -33,6 +35,7 @@ from .models import (
     Utterance,
 )
 from .serializers import (
+    BotImageSerializer,
     BotSerializer,
     CreateBotSerializer,
     RecordingSerializer,
@@ -133,6 +136,25 @@ def launch_bot(bot):
         run_bot.delay(bot.id)
 
 
+def create_bot_media_request_for_image(bot, image):
+    content_type = image["type"]
+    image_data = image["decoded_data"]
+    try:
+        # Create or get existing MediaBlob
+        media_blob = MediaBlob.get_or_create_from_blob(project=bot.project, blob=image_data, content_type=content_type)
+    except Exception as e:
+        error_message_first_line = str(e).split("\n")[0]
+        logging.error(f"Error creating image blob: {error_message_first_line} (content_type={content_type})")
+        raise ValidationError(f"Error creating the image blob: {error_message_first_line}.")
+
+    # Create BotMediaRequest
+    BotMediaRequest.objects.create(
+        bot=bot,
+        media_blob=media_blob,
+        media_type=BotMediaRequestMediaTypes.IMAGE,
+    )
+
+
 class BotCreateView(APIView):
     authentication_classes = [ApiKeyAuthentication]
 
@@ -174,7 +196,7 @@ class BotCreateView(APIView):
             zoom_credentials = project.credentials.filter(credential_type=Credentials.CredentialTypes.ZOOM_OAUTH).first()
 
             if not zoom_credentials:
-                settings_url = request.build_absolute_uri(reverse("bots:project-settings", kwargs={"object_id": project.object_id}))
+                settings_url = request.build_absolute_uri(reverse("bots:project-credentials", kwargs={"object_id": project.object_id}))
                 return Response(
                     {"error": f"Zoom App credentials are required to create a Zoom bot. Please add Zoom credentials at {settings_url}"},
                     status=status.HTTP_400_BAD_REQUEST,
@@ -184,25 +206,39 @@ class BotCreateView(APIView):
         transcription_settings = serializer.validated_data["transcription_settings"]
         rtmp_settings = serializer.validated_data["rtmp_settings"]
         recording_settings = serializer.validated_data["recording_settings"]
+        debug_settings = serializer.validated_data["debug_settings"]
+        bot_image = serializer.validated_data["bot_image"]
+        metadata = serializer.validated_data["metadata"]
+
         settings = {
             "transcription_settings": transcription_settings,
             "rtmp_settings": rtmp_settings,
             "recording_settings": recording_settings,
+            "debug_settings": debug_settings,
         }
-        bot = Bot.objects.create(
-            project=project,
-            meeting_url=meeting_url,
-            name=bot_name,
-            settings=settings,
-        )
 
-        Recording.objects.create(
-            bot=bot,
-            recording_type=RecordingTypes.AUDIO_AND_VIDEO,
-            transcription_type=TranscriptionTypes.NON_REALTIME,
-            transcription_provider=TranscriptionProviders.DEEPGRAM,
-            is_default_recording=True,
-        )
+        with transaction.atomic():
+            bot = Bot.objects.create(
+                project=project,
+                meeting_url=meeting_url,
+                name=bot_name,
+                settings=settings,
+                metadata=metadata,
+            )
+
+            Recording.objects.create(
+                bot=bot,
+                recording_type=RecordingTypes.AUDIO_AND_VIDEO,
+                transcription_type=TranscriptionTypes.NON_REALTIME,
+                transcription_provider=TranscriptionProviders.DEEPGRAM,
+                is_default_recording=True,
+            )
+
+            if bot_image:
+                try:
+                    create_bot_media_request_for_image(bot, bot_image)
+                except ValidationError as e:
+                    return Response({"error": e.messages[0]}, status=status.HTTP_400_BAD_REQUEST)
 
         # Try to transition the state from READY to JOINING
         BotEventManager.create_event(bot, BotEventTypes.JOIN_REQUESTED)
@@ -260,7 +296,7 @@ class SpeechView(APIView):
         google_tts_credentials = bot.project.credentials.filter(credential_type=Credentials.CredentialTypes.GOOGLE_TTS).first()
 
         if not google_tts_credentials:
-            settings_url = request.build_absolute_uri(reverse("bots:project-settings", kwargs={"object_id": bot.project.object_id}))
+            settings_url = request.build_absolute_uri(reverse("bots:project-credentials", kwargs={"object_id": bot.project.object_id}))
             return Response(
                 {"error": f"Google Text-to-Speech credentials are required. Please add credentials at {settings_url}"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -387,23 +423,7 @@ class OutputImageView(APIView):
         operation_id="Output Image",
         summary="Output image",
         description="Causes the bot to output an image in the meeting.",
-        request={
-            "application/json": {
-                "type": "object",
-                "properties": {
-                    "type": {
-                        "type": "string",
-                        "enum": [ct[0] for ct in MediaBlob.VALID_IMAGE_CONTENT_TYPES],
-                    },
-                    "data": {
-                        "type": "string",
-                        "format": "binary",
-                        "description": "Base64 encoded image data",
-                    },
-                },
-                "required": ["type", "data"],
-            }
-        },
+        request=BotImageSerializer,
         responses={
             200: OpenApiResponse(description="Image request created successfully"),
             400: OpenApiResponse(description="Invalid input"),
@@ -423,31 +443,6 @@ class OutputImageView(APIView):
     )
     def post(self, request, object_id):
         try:
-            # Validate request data
-            if "type" not in request.data or "data" not in request.data:
-                return Response(
-                    {"error": "Both type and data are required"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            content_type = request.data["type"]
-            if content_type not in [ct[0] for ct in MediaBlob.VALID_IMAGE_CONTENT_TYPES]:
-                return Response(
-                    {"error": "Invalid image content type"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            try:
-                # Decode base64 data
-                import base64
-
-                image_data = base64.b64decode(request.data["data"])
-            except Exception:
-                return Response(
-                    {"error": "Invalid base64 encoded data"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
             # Get the bot
             bot = Bot.objects.get(object_id=object_id, project=request.auth.project)
             if not BotEventManager.is_state_that_can_play_media(bot.state):
@@ -456,20 +451,15 @@ class OutputImageView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            try:
-                # Create or get existing MediaBlob
-                media_blob = MediaBlob.get_or_create_from_blob(project=request.auth.project, blob=image_data, content_type=content_type)
-            except Exception as e:
-                error_message_first_line = str(e).split("\n")[0]
-                logging.error(f"Error creating image blob: {error_message_first_line} (content_type={content_type}, bot_id={object_id})")
-                return Response({"error": f"Error creating the image blob. Are you sure it's a valid {content_type} file?", "debug_message": error_message_first_line}, status=status.HTTP_400_BAD_REQUEST)
+            # Validate request data
+            bot_image = BotImageSerializer(data=request.data)
+            if not bot_image.is_valid():
+                return Response(bot_image.errors, status=status.HTTP_400_BAD_REQUEST)
 
-            # Create BotMediaRequest
-            BotMediaRequest.objects.create(
-                bot=bot,
-                media_blob=media_blob,
-                media_type=BotMediaRequestMediaTypes.IMAGE,
-            )
+            try:
+                create_bot_media_request_for_image(bot, bot_image.validated_data)
+            except ValidationError as e:
+                return Response({"error": e.messages[0]}, status=status.HTTP_400_BAD_REQUEST)
 
             # Send sync command
             send_sync_command(bot, "sync_media_requests")
@@ -596,6 +586,14 @@ class TranscriptView(APIView):
                 description="Bot ID",
                 examples=[OpenApiExample("Bot ID Example", value="bot_xxxxxxxxxxx")],
             ),
+            OpenApiParameter(
+                name="updated_after",
+                type={"type": "string", "format": "ISO 8601 datetime"},
+                location=OpenApiParameter.QUERY,
+                description="Only return transcript entries updated or created after this time. Useful when polling for updates to the transcript.",
+                required=False,
+                examples=[OpenApiExample("DateTime Example", value="2024-01-18T12:34:56Z")],
+            ),
         ],
         tags=["Bots"],
     )
@@ -611,7 +609,25 @@ class TranscriptView(APIView):
                 )
 
             # Get all utterances with transcriptions, sorted by timeline
-            utterances = Utterance.objects.select_related("participant").filter(recording=recording, transcription__isnull=False).order_by("timestamp_ms")
+            utterances_query = Utterance.objects.select_related("participant").filter(recording=recording, transcription__isnull=False)
+
+            # Apply updated_after filter if provided
+            updated_after = request.query_params.get("updated_after")
+            if updated_after:
+                try:
+                    updated_after_datetime = parse_datetime(str(updated_after))
+                except Exception:
+                    updated_after_datetime = None
+
+                if not updated_after_datetime:
+                    return Response(
+                        {"error": "Invalid updated_after format. Use ISO 8601 format (e.g., 2024-01-18T12:34:56Z)"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                utterances_query = utterances_query.filter(updated_at__gt=updated_after_datetime)
+
+            # Apply ordering
+            utterances = utterances_query.order_by("timestamp_ms")
 
             # Format the response, skipping empty transcriptions
             transcript_data = [

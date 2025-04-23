@@ -19,6 +19,7 @@ def main():
     print("AWS_RECORDING_STORAGE_BUCKET_NAME=")
     print("AWS_ACCESS_KEY_ID=")
     print("AWS_SECRET_ACCESS_KEY=")
+    print("AWS_DEFAULT_REGION=us-east-1")
 
 
 if __name__ == "__main__":

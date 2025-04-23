@@ -1,0 +1,26 @@
+{% extends "admin/change_list.html" %}
+{% load i18n admin_urls %}
+
+{% block content_title %}
+    <h1>Utterances</h1>
+    <div style="margin-bottom: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 5px;">
+        <h2 style="margin-top: 0;">Transcription Latency Statistics</h2>
+        <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+            <div style="flex: 1; min-width: 200px;">
+                <h3>Last 12 Hours</h3>
+                <p><strong>Transcribed Utterances:</strong> {{ utterance_stats.recent_count }}</p>
+                {% if utterance_stats.avg_latency is not None %}
+                    <p><strong>Average Latency:</strong> {{ utterance_stats.avg_latency }} seconds</p>
+                    <p><strong>Minimum Latency:</strong> {{ utterance_stats.min_latency }} seconds</p>
+                    <p><strong>Maximum Latency:</strong> {{ utterance_stats.max_latency }} seconds</p>
+                {% else %}
+                    <p><em>No transcribed utterances in the last 12 hours</em></p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block content %}
+    {{ block.super }}
+{% endblock %} 

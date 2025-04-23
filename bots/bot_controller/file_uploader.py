@@ -1,8 +1,12 @@
 import logging
+import os
 import threading
 from pathlib import Path
 
 import boto3
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class FileUploader:
@@ -11,8 +15,9 @@ class FileUploader:
 
         Args:
             bucket (str): The name of the S3 bucket to upload to
+            key (str): The name of the to be stored file
         """
-        self.s3_client = boto3.client("s3")
+        self.s3_client = boto3.client("s3", endpoint_url=os.getenv("AWS_ENDPOINT_URL"))
         self.bucket = bucket
         self.key = key
         self._upload_thread = None
@@ -42,13 +47,13 @@ class FileUploader:
             # Upload the file using S3's multipart upload functionality
             self.s3_client.upload_file(str(file_path), self.bucket, self.key)
 
-            logging.info(f"Successfully uploaded {file_path} to s3://{self.bucket}/{self.key}")
+            logger.info(f"Successfully uploaded {file_path} to s3://{self.bucket}/{self.key}")
 
             if callback:
                 callback(True)
 
         except Exception as e:
-            logging.error(f"Upload error: {e}")
+            logger.error(f"Upload error: {e}")
             if callback:
                 callback(False)
 

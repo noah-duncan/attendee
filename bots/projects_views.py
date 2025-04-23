@@ -1,34 +1,47 @@
-from django import forms
-from django.contrib import messages
+import base64
+import logging
+import math
+import os
+
+import stripe
+from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import models
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views import View
+from django.views.generic.list import ListView
 
-from .bots_api_views import launch_bot
 from .models import (
     ApiKey,
     Bot,
-    BotEventManager,
+    BotEvent,
+    BotEventSubTypes,
     BotEventTypes,
     BotStates,
     Credentials,
+    CreditTransaction,
     Project,
-    Recording,
     RecordingStates,
-    RecordingTypes,
-    TranscriptionProviders,
-    TranscriptionTypes,
     Utterance,
+    WebhookDeliveryAttempt,
+    WebhookDeliveryAttemptStatus,
+    WebhookSecret,
+    WebhookSubscription,
+    WebhookTriggerTypes,
 )
+from .stripe_utils import process_checkout_session_completed
 from .utils import generate_recordings_json_for_bot_detail_view
+
+logger = logging.getLogger(__name__)
 
 
 class ProjectUrlContextMixin:
     def get_project_context(self, object_id, project):
         return {
             "project": project,
+            "charge_credits_for_bots_setting": settings.CHARGE_CREDITS_FOR_BOTS,
         }
 
 
@@ -184,24 +197,79 @@ class ProjectSettingsView(LoginRequiredMixin, ProjectUrlContextMixin, View):
             }
         )
 
-        return render(request, "projects/project_settings.html", context)
+        return render(request, "projects/project_credentials.html", context)
 
 
-class ProjectBotsView(LoginRequiredMixin, ProjectUrlContextMixin, View):
-    def get(self, request, object_id):
-        project = get_object_or_404(Project, object_id=object_id, organization=request.user.organization)
+class ProjectBotsView(LoginRequiredMixin, ProjectUrlContextMixin, ListView):
+    template_name = "projects/project_bots.html"
+    context_object_name = "bots"
+    paginate_by = 20
 
-        bots = Bot.objects.filter(project=project).order_by("-created_at")
+    def get_queryset(self):
+        project = get_object_or_404(Project, object_id=self.kwargs["object_id"], organization=self.request.user.organization)
 
-        context = self.get_project_context(object_id, project)
-        context.update(
-            {
-                "bots": bots,
-                "BotStates": BotStates,
-            }
-        )
+        # Start with the base queryset
+        queryset = Bot.objects.filter(project=project)
 
-        return render(request, "projects/project_bots.html", context)
+        # Apply date filters if provided
+        start_date = self.request.GET.get("start_date")
+        end_date = self.request.GET.get("end_date")
+
+        if start_date:
+            queryset = queryset.filter(created_at__gte=start_date)
+        if end_date:
+            # Add 1 day to include the end date fully
+            from datetime import datetime, timedelta
+
+            try:
+                end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
+                end_date_obj = end_date_obj + timedelta(days=1)
+                queryset = queryset.filter(created_at__lt=end_date_obj)
+            except (ValueError, TypeError):
+                # Handle invalid date format
+                pass
+
+        # Apply state filters if provided
+        states = self.request.GET.getlist("states")
+        if states:
+            # Convert string values to integers
+            try:
+                state_values = [int(state) for state in states if state.isdigit()]
+                if state_values:
+                    queryset = queryset.filter(state__in=state_values)
+            except (ValueError, TypeError):
+                # Handle invalid state values
+                pass
+
+        # Get the latest bot event type and subtype for each bot using subquery annotations
+        latest_event_subquery_base = BotEvent.objects.filter(bot=models.OuterRef("pk")).order_by("-created_at")
+        latest_event_type = latest_event_subquery_base.values("event_type")[:1]
+        latest_event_sub_type = latest_event_subquery_base.values("event_sub_type")[:1]
+
+        # Apply annotations and ordering
+        queryset = queryset.annotate(last_event_type=models.Subquery(latest_event_type), last_event_sub_type=models.Subquery(latest_event_sub_type)).order_by("-created_at")
+
+        # Add display names for the event types
+        for bot in queryset:
+            if bot.last_event_type:
+                bot.last_event_type_display = dict(BotEventTypes.choices).get(bot.last_event_type, str(bot.last_event_type))
+            if bot.last_event_sub_type:
+                bot.last_event_sub_type_display = dict(BotEventSubTypes.choices).get(bot.last_event_sub_type, str(bot.last_event_sub_type))
+
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        project = get_object_or_404(Project, object_id=self.kwargs["object_id"], organization=self.request.user.organization)
+        context.update(self.get_project_context(self.kwargs["object_id"], project))
+
+        # Add BotStates for the template
+        context["BotStates"] = BotStates
+
+        # Add filter parameters to context for maintaining state
+        context["filter_params"] = {"start_date": self.request.GET.get("start_date", ""), "end_date": self.request.GET.get("end_date", ""), "states": self.request.GET.getlist("states")}
+
+        return context
 
 
 class ProjectBotDetailView(LoginRequiredMixin, ProjectUrlContextMixin, View):
@@ -216,6 +284,9 @@ class ProjectBotDetailView(LoginRequiredMixin, ProjectUrlContextMixin, View):
         # Prefetch bot events with their debug screenshots
         bot.bot_events.prefetch_related("debug_screenshots")
 
+        # Get webhook delivery attempts for this bot
+        webhook_delivery_attempts = WebhookDeliveryAttempt.objects.filter(bot=bot).select_related("webhook_subscription").order_by("-created_at")
+
         context = self.get_project_context(object_id, project)
         context.update(
             {
@@ -223,75 +294,174 @@ class ProjectBotDetailView(LoginRequiredMixin, ProjectUrlContextMixin, View):
                 "BotStates": BotStates,
                 "RecordingStates": RecordingStates,
                 "recordings": generate_recordings_json_for_bot_detail_view(bot),
+                "webhook_delivery_attempts": webhook_delivery_attempts,
+                "WebhookDeliveryAttemptStatus": WebhookDeliveryAttemptStatus,
+                "credits_consumed": -sum([t.credits_delta() for t in bot.credit_transactions.all()]) if bot.credit_transactions.exists() else None,
             }
         )
 
         return render(request, "projects/project_bot_detail.html", context)
 
 
-class CreateBotView(LoginRequiredMixin, ProjectUrlContextMixin, View):
+class ProjectWebhooksView(LoginRequiredMixin, ProjectUrlContextMixin, View):
     def get(self, request, object_id):
         project = get_object_or_404(Project, object_id=object_id, organization=request.user.organization)
-
-        class BotCreateForm(forms.Form):
-            meeting_url = forms.URLField(required=True, label="Meeting URL", help_text="The URL of the meeting to join (Zoom, Google Meet, MS Teams)")
-            bot_name = forms.CharField(required=False, label="Bot Name", initial="Meeting Bot", help_text="A friendly name for this bot")
-
         context = self.get_project_context(object_id, project)
-        context["form"] = BotCreateForm()
-        context["title"] = "Create Bot to Join Meeting"
+        context["webhooks"] = WebhookSubscription.objects.filter(project=project).order_by("-created_at")
+        context["webhook_options"] = [trigger_type for trigger_type in WebhookTriggerTypes]
+        return render(request, "projects/project_webhooks.html", context)
 
-        return render(request, "projects/project_create_bot.html", context)
 
+class CreateWebhookView(LoginRequiredMixin, ProjectUrlContextMixin, View):
     def post(self, request, object_id):
         project = get_object_or_404(Project, object_id=object_id, organization=request.user.organization)
+        url = request.POST.get("url")
+        triggers = request.POST.getlist("triggers[]")
 
-        class BotCreateForm(forms.Form):
-            meeting_url = forms.URLField(required=True, label="Meeting URL", help_text="The URL of the meeting to join (Zoom, Google Meet, MS Teams)")
-            bot_name = forms.CharField(required=False, label="Bot Name", initial="Meeting Bot", help_text="A friendly name for this bot")
+        # Check if URL is valid
+        if not url.startswith("https://"):
+            return HttpResponse("URL must start with https://", status=400)
+        if WebhookSubscription.objects.filter(url=url, project=project).exists():
+            return HttpResponse("URL already subscribed", status=400)
+        # There is a limit of 2 webhooks per projects for now
+        if WebhookSubscription.objects.filter(project=project).count() >= 2:
+            return HttpResponse("You have reached the maximum number of webhooks", status=400)
 
-        form = BotCreateForm(request.POST)
-        if form.is_valid():
-            try:
-                # Get form data
-                meeting_url = form.cleaned_data["meeting_url"]
-                bot_name = form.cleaned_data.get("bot_name") or "Meeting Bot"
-                recording_format = "webm"  # Default to webm format
+        # Check the event is subscribable
+        subscribed_triggers = [int(x) for x in triggers]
+        for trigger in subscribed_triggers:
+            if trigger not in [trigger.value for trigger in WebhookTriggerTypes]:
+                return HttpResponse(f"Invalid event type: {trigger}", status=400)
 
-                # Create bot settings
-                settings = {
-                    "transcription_settings": {"deepgram": {"language": "en"}},
-                    "recording_settings": {"format": recording_format},
-                }
+        # Get the project's secret for the webhook subscription. If new project, create a new one
+        webhook_secret, created = WebhookSecret.objects.get_or_create(project=project)
 
-                # Create the Bot
-                bot = Bot.objects.create(project=project, meeting_url=meeting_url, name=bot_name, settings=settings)
+        # Create the webhook subscription
+        WebhookSubscription.objects.create(
+            project=project,
+            url=url,
+            triggers=subscribed_triggers,
+        )
 
-                # Create a recording
-                Recording.objects.create(
-                    bot=bot,
-                    recording_type=RecordingTypes.AUDIO_AND_VIDEO,
-                    transcription_type=TranscriptionTypes.NON_REALTIME,
-                    transcription_provider=TranscriptionProviders.DEEPGRAM,
-                    is_default_recording=True,
-                )
+        # Render the success modal content
+        return render(
+            request,
+            "projects/partials/webhook_subscription_created_modal.html",
+            {
+                "secret": base64.b64encode(webhook_secret.get_secret()).decode("utf-8"),
+                "url": url,
+                "triggers": [WebhookTriggerTypes.trigger_type_to_api_code(x) for x in subscribed_triggers],
+            },
+        )
 
-                # Transition state from READY to JOINING
-                BotEventManager.create_event(bot, BotEventTypes.JOIN_REQUESTED)
 
-                # Launch the bot
-                launch_bot(bot)
+class DeleteWebhookView(LoginRequiredMixin, ProjectUrlContextMixin, View):
+    def delete(self, request, object_id, webhook_object_id):
+        webhook = get_object_or_404(
+            WebhookSubscription,
+            object_id=webhook_object_id,
+            project__organization=request.user.organization,
+        )
+        webhook.delete()
+        context = self.get_project_context(object_id, webhook.project)
+        context["webhooks"] = WebhookSubscription.objects.filter(project=webhook.project).order_by("-created_at")
+        context["webhook_options"] = [trigger_type for trigger_type in WebhookTriggerTypes]
+        return render(request, "projects/project_webhooks.html", context)
 
-                messages.success(request, f"Bot created successfully and is joining the meeting. Bot ID: {bot.object_id}")
-                return redirect("projects:project-bots", object_id=project.object_id)
 
-            except Exception as e:
-                messages.error(request, f"Error creating bot: {str(e)}")
+class ProjectBillingView(LoginRequiredMixin, ProjectUrlContextMixin, ListView):
+    template_name = "projects/project_billing.html"
+    context_object_name = "transactions"
+    paginate_by = 20
+
+    def get_queryset(self):
+        project = get_object_or_404(Project, object_id=self.kwargs["object_id"], organization=self.request.user.organization)
+        return CreditTransaction.objects.filter(organization=project.organization).order_by("-created_at")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        project = get_object_or_404(Project, object_id=self.kwargs["object_id"], organization=self.request.user.organization)
+        context.update(self.get_project_context(self.kwargs["object_id"], project))
+        return context
+
+
+class CheckoutSuccessView(LoginRequiredMixin, ProjectUrlContextMixin, View):
+    def get(self, request, object_id):
+        session_id = request.GET.get("session_id")
+        if not session_id:
+            return HttpResponse("No session ID provided", status=400)
+
+        # Retrieve the session details
+        try:
+            checkout_session = stripe.checkout.Session.retrieve(session_id, api_key=os.getenv("STRIPE_SECRET_KEY"))
+        except Exception as e:
+            return HttpResponse(f"Error retrieving session details: {e}", status=400)
+
+        process_checkout_session_completed(checkout_session)
+
+        return redirect(reverse("bots:project-billing", kwargs={"object_id": object_id}))
+
+
+class CreateCheckoutSessionView(LoginRequiredMixin, ProjectUrlContextMixin, View):
+    def post(self, request, object_id):
+        # Get the purchase amount from the form submission
+        try:
+            purchase_amount = float(request.POST.get("purchase_amount", 50.0))
+            if purchase_amount < 1:
+                purchase_amount = 1.0
+        except (ValueError, TypeError):
+            purchase_amount = 50.0  # Default fallback
+
+        # Calculate credits based on tiered pricing
+        if purchase_amount <= 200:
+            # Tier 1: $0.50 per credit
+            credit_amount = purchase_amount / 0.5
+        elif purchase_amount <= 1000:
+            # Tier 2: $0.40 per credit
+            credit_amount = purchase_amount / 0.4
         else:
-            messages.error(request, "Please correct the errors below.")
+            # Tier 3: $0.35 per credit
+            credit_amount = purchase_amount / 0.35
 
-        context = self.get_project_context(object_id, project)
-        context["form"] = form
-        context["title"] = "Create Bot to Join Meeting"
+        # Floor the credit amount to ensure whole credits
+        credit_amount = math.floor(credit_amount)
 
-        return render(request, "projects/project_create_bot.html", context)
+        # Ensure at least 1 credit
+        if credit_amount < 1:
+            credit_amount = 1
+
+        # Convert purchase amount to cents for Stripe
+        unit_amount = int(purchase_amount * 100)  # in cents
+
+        if unit_amount > 1000000:  # $10000 limit
+            return HttpResponse("The maximum purchase amount is $10000.", status=400)
+
+        # Create checkout session
+        checkout_session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[
+                {
+                    "price_data": {
+                        "currency": "usd",
+                        "product_data": {
+                            "name": f"{credit_amount} Attendee Credits",
+                            "description": f"Purchase {credit_amount} Attendee credits for your account",
+                        },
+                        "unit_amount": unit_amount,
+                    },
+                    "quantity": 1,
+                }
+            ],
+            mode="payment",
+            success_url=request.build_absolute_uri(reverse("bots:checkout-success", kwargs={"object_id": object_id})) + "?session_id={CHECKOUT_SESSION_ID}",
+            cancel_url=request.build_absolute_uri(reverse("bots:project-billing", kwargs={"object_id": object_id})),
+            metadata={
+                "organization_id": str(request.user.organization.id),
+                "user_id": str(request.user.id),
+                "credit_amount": str(credit_amount),
+            },
+            api_key=os.getenv("STRIPE_SECRET_KEY"),
+        )
+
+        # Redirect directly to the Stripe checkout page
+        return redirect(checkout_session.url)

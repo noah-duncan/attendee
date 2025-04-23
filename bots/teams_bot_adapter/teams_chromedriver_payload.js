@@ -1,3 +1,186 @@
+class StyleManager {
+    constructor() {
+        this.audioContext = null;
+        this.audioTracks = [];
+        this.silenceThreshold = 0.0;
+        this.silenceCheckInterval = null;
+        this.frameStyleElement = null;
+        this.frameAdjustInterval = null;
+    }
+
+    addAudioTrack(audioTrack) {
+        this.audioTracks.push(audioTrack);
+    }
+
+    checkAudioActivity() {
+        // Get audio data
+        this.analyser.getByteTimeDomainData(this.audioDataArray);
+        
+        // Calculate deviation from the center value (128)
+        let sumDeviation = 0;
+        for (let i = 0; i < this.audioDataArray.length; i++) {
+            // Calculate how much each sample deviates from the center (128)
+            sumDeviation += Math.abs(this.audioDataArray[i] - 128);
+        }
+        
+        const averageDeviation = sumDeviation / this.audioDataArray.length;
+        
+        // If average deviation is above threshold, we have audio activity
+        if (averageDeviation > this.silenceThreshold) {
+            window.ws.sendJson({
+                type: 'SilenceStatus',
+                isSilent: false
+            });
+        }
+    }
+
+    startSilenceDetection() {
+         // Set up audio context and processing as before
+         this.audioContext = new AudioContext();
+
+         this.audioSources = this.audioTracks.map(track => {
+             const mediaStream = new MediaStream([track]);
+             return this.audioContext.createMediaStreamSource(mediaStream);
+         });
+ 
+         // Create a destination node
+         const destination = this.audioContext.createMediaStreamDestination();
+ 
+         // Connect all sources to the destination
+         this.audioSources.forEach(source => {
+             source.connect(destination);
+         });
+ 
+         // Create analyzer and connect it to the destination
+         this.analyser = this.audioContext.createAnalyser();
+         this.analyser.fftSize = 256;
+         const bufferLength = this.analyser.frequencyBinCount;
+         this.audioDataArray = new Uint8Array(bufferLength);
+ 
+         // Create a source from the destination's stream and connect it to the analyzer
+         const mixedSource = this.audioContext.createMediaStreamSource(destination.stream);
+         mixedSource.connect(this.analyser);
+ 
+         this.mixedAudioTrack = destination.stream.getAudioTracks()[0];
+
+        // Clear any existing interval
+        if (this.silenceCheckInterval) {
+            clearInterval(this.silenceCheckInterval);
+        }
+                
+        // Check for audio activity every second
+        this.silenceCheckInterval = setInterval(() => {
+            this.checkAudioActivity();
+        }, 1000);
+    }
+
+    makeMainVideoFillFrame() {
+        // Create a style element
+        const style = document.createElement('style');
+        
+        // Define the CSS rules
+        style.textContent = `
+            /* First, hide all elements */
+            body * {
+            display: none !important;
+            }
+            
+            /* Make the target element visible */
+            [data-test-segment-type="central"] {
+            display: block !important;
+            }
+            
+            /* Make all parents of the target element visible - this works because an element must be displayed for its children to be visible */
+            [data-test-segment-type="central"] ancestor {
+            display: block !important;
+            }
+            
+            /* Make all ancestors visible using :has() selector (modern browsers) */
+            *:has([data-test-segment-type="central"]) {
+            display: block !important;
+            }
+            
+            /* Make all children visible */
+            [data-test-segment-type="central"] * {
+            display: inherit !important;
+            }
+        `;
+        
+        // Add the style element to the document head
+        document.head.appendChild(style);
+        
+        // Store reference to the style element
+        this.frameStyleElement = style;
+        
+        // Initial adjustment
+        this.adjustCentralElement();
+        
+        // Set up interval to readjust the central element regularly
+        this.frameAdjustInterval = setInterval(() => {
+            this.adjustCentralElement();
+        }, 250);
+    }
+    
+    adjustCentralElement() {
+        // Get the central element
+        const centralElement = document.querySelector('[data-test-segment-type="central"]');
+        
+        // Function to remove width and height from inline styles
+        function adjustCentralElementSize(element) {
+            if (element.style) {
+                element.style.width = '1920px';
+                element.style.height = '1080px';
+            }
+        }
+        
+        if (centralElement) {
+            // Remove styles from the central element
+            adjustCentralElementSize(centralElement.children[0].children[0].children[0]);
+            adjustCentralElementSize(centralElement.children[0]);
+            adjustCentralElementSize(centralElement);
+        }
+    }
+
+    restoreOriginalFrame() {
+        // If we have a reference to the style element, remove it
+        if (this.frameStyleElement) {
+            this.frameStyleElement.remove();
+            this.frameStyleElement = null;
+            console.log('Removed video frame style element');
+        }
+        
+        // Clear the adjustment interval if it exists
+        if (this.frameAdjustInterval) {
+            clearInterval(this.frameAdjustInterval);
+            this.frameAdjustInterval = null;
+        }
+    }
+
+    stop() {
+        // Clear any existing interval
+        if (this.silenceCheckInterval) {
+            clearInterval(this.silenceCheckInterval);
+            this.silenceCheckInterval = null;
+        }
+        
+        // Restore original frame layout
+        this.restoreOriginalFrame();
+        
+        console.log('Stopped StyleManager');
+    }
+
+    start() {
+        this.startSilenceDetection();
+        this.makeMainVideoFillFrame();
+
+        console.log('Started StyleManager');
+    }
+    
+    addVideoTrack(trackEvent) {
+        console.log('addVideoTrack', trackEvent, ' is currently a no-op');
+    }
+}
+
 class DominantSpeakerManager {
     constructor() {
         this.dominantSpeakerStreamId = null;
@@ -590,10 +773,14 @@ class WebSocketClient {
         };
   
         this.mediaSendingEnabled = false;
+        /*
+        We no longer need this because we're not using MediaStreamTrackProcessor's
         this.lastVideoFrameTime = performance.now();
         this.blackFrameInterval = null;
+        */
     }
   
+    /*
     startBlackFrameTimer() {
       if (this.blackFrameInterval) return; // Don't start if already running
       
@@ -622,22 +809,33 @@ class WebSocketClient {
       }, 250);
     }
   
-      stopBlackFrameTimer() {
-          if (this.blackFrameInterval) {
-              clearInterval(this.blackFrameInterval);
-              this.blackFrameInterval = null;
-          }
-      }
+    stopBlackFrameTimer() {
+        if (this.blackFrameInterval) {
+            clearInterval(this.blackFrameInterval);
+            this.blackFrameInterval = null;
+        }
+    }
+    */
   
     enableMediaSending() {
-      this.mediaSendingEnabled = true;
-      this.startBlackFrameTimer();
+        this.mediaSendingEnabled = true;
+        window.styleManager.start();
+
+        // No longer need this because we're not using MediaStreamTrackProcessor's
+        //this.startBlackFrameTimer();
     }
-  
-    disableMediaSending() {
-      this.mediaSendingEnabled = false;
-      this.stopBlackFrameTimer();
+
+    async disableMediaSending() {
+        window.styleManager.stop();
+        //window.fullCaptureManager.stop();
+        // Give the media recorder a bit of time to send the final data
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        this.mediaSendingEnabled = false;
+
+        // No longer need this because we're not using MediaStreamTrackProcessor's
+        //this.stopBlackFrameTimer();
     }
+
   
     handleMessage(data) {
         const view = new DataView(data);
@@ -943,6 +1141,8 @@ window.userManager = userManager;
 const virtualStreamToPhysicalStreamMappingManager = new VirtualStreamToPhysicalStreamMappingManager();
 const dominantSpeakerManager = new DominantSpeakerManager();
 
+const styleManager = new StyleManager();
+window.styleManager = styleManager;
 if (!realConsole) {
     if (document.readyState === 'complete') {
         createIframe();
@@ -1353,6 +1553,26 @@ new RTCInterceptor({
         });
 
         peerConnection.addEventListener('track', (event) => {
+            console.log('New track:', {
+                trackId: event.track.id,
+                trackKind: event.track.kind,
+                streams: event.streams,
+            });
+            // We need to capture every audio track in the meeting,
+            // but we don't need to do anything with the video tracks
+            if (event.track.kind === 'audio') {
+                window.styleManager.addAudioTrack(event.track);
+            }
+            if (event.track.kind === 'video') {
+                window.styleManager.addVideoTrack(event);
+            }
+        });
+
+        /*
+        We are no longer setting up per-frame MediaStreamTrackProcessor's because it taxes the CPU too much
+        For now, we are just using the ScreenAndAudioRecorder to record the video stream
+        but we're keeping this code around for reference
+        peerConnection.addEventListener('track', (event) => {
             // Log the track and its associated streams
 
             if (event.track.kind === 'audio') {
@@ -1374,6 +1594,7 @@ new RTCInterceptor({
                 }
             }
         });
+        */
 
         peerConnection.addEventListener('connectionstatechange', (event) => {
             realConsole?.log('connectionstatechange', event);
@@ -1460,3 +1681,305 @@ new RTCInterceptor({
         */
     }
 });
+
+function addClickRipple() {
+    document.addEventListener('click', function(e) {
+      const ripple = document.createElement('div');
+      
+      // Apply styles directly to the element
+      ripple.style.position = 'fixed';
+      ripple.style.borderRadius = '50%';
+      ripple.style.width = '20px';
+      ripple.style.height = '20px';
+      ripple.style.marginLeft = '-10px';
+      ripple.style.marginTop = '-10px';
+      ripple.style.background = 'red';
+      ripple.style.opacity = '0';
+      ripple.style.pointerEvents = 'none';
+      ripple.style.transform = 'scale(0)';
+      ripple.style.transition = 'transform 0.3s, opacity 0.3s';
+      ripple.style.zIndex = '9999999';
+      
+      ripple.style.left = e.pageX + 'px';
+      ripple.style.top = e.pageY + 'px';
+      document.body.appendChild(ripple);
+  
+      // Force reflow so CSS transition will play
+      getComputedStyle(ripple).transform;
+      
+      // Animate
+      ripple.style.transform = 'scale(3)';
+      ripple.style.opacity = '0.7';
+  
+      // Remove after animation
+      setTimeout(() => {
+        ripple.remove();
+      }, 300);
+    }, true);
+}
+
+if (window.initialData.addClickRipple) {
+    addClickRipple();
+}
+
+
+
+function turnOnCamera() {
+    // Click camera button to turn it on
+    const cameraButton = document.querySelector('button[aria-label="Turn camera on"]');
+    if (cameraButton) {
+        console.log("Clicking the camera button to turn it on");
+        cameraButton.click();
+    } else {
+        console.log("Camera button not found");
+    }
+}
+
+function turnOnMicAndCamera() {
+    // Click microphone button to turn it on
+    const microphoneButton = document.querySelector('button[aria-label="Unmute mic"]');
+    if (microphoneButton) {
+        console.log("Clicking the microphone button to turn it on");
+        microphoneButton.click();
+    } else {
+        console.log("Microphone button not found");
+    }
+
+    // Click camera button to turn it on
+    const cameraButton = document.querySelector('button[aria-label="Turn camera on"]');
+    if (cameraButton) {
+        console.log("Clicking the camera button to turn it on");
+        cameraButton.click();
+    } else {
+        console.log("Camera button not found");
+    }
+}
+
+function turnOffMicAndCamera() {
+    // Click microphone button to turn it on
+    const microphoneButton = document.querySelector('button[aria-label="Mute mic"]');
+    if (microphoneButton) {
+        console.log("Clicking the microphone button to turn it off");
+        microphoneButton.click();
+    } else {
+        console.log("Microphone off button not found");
+    }
+
+    // Click camera button to turn it on
+    const cameraButton = document.querySelector('button[aria-label="Turn camera off"]');
+    if (cameraButton) {
+        console.log("Clicking the camera button to turn it off");
+        cameraButton.click();
+    } else {
+        console.log("Camera off button not found");
+    }
+}
+
+const _getUserMedia = navigator.mediaDevices.getUserMedia;
+
+class BotOutputManager {
+    constructor() {
+        
+        // For outputting video
+        this.botOutputVideoElement = null;
+        this.videoSource = null;
+        this.botOutputVideoElementCaptureStream = null;
+
+        // For outputting image
+        this.botOutputCanvasElement = null;
+        this.botOutputCanvasElementCaptureStream = null;
+        
+        // For outputting audio
+        this.audioContextForBotOutput = null;
+        this.gainNode = null;
+        this.destination = null;
+        this.botOutputAudioTrack = null;
+    }
+
+    displayImage(imageBytes) {
+        try {
+            // Wait for the image to be loaded onto the canvas
+            return this.writeImageToBotOutputCanvas(imageBytes)
+                .then(() => {
+                // If the stream is already broadcasting, don't do anything
+                if (this.botOutputCanvasElementCaptureStream)
+                {
+                    console.log("Stream already broadcasting, skipping");
+                    return;
+                }
+
+                // Now that the image is loaded, capture the stream and turn on camera
+                this.botOutputCanvasElementCaptureStream = this.botOutputCanvasElement.captureStream(1);
+                // Wait for 3 seconds before turning on camera, this is necessary for teams only
+                setTimeout(turnOnCamera, 3000);
+            })
+            .catch(error => {
+                console.error('Error in botOutputManager.displayImage:', error);
+            });
+        } catch (error) {
+            console.error('Error in botOutputManager.displayImage:', error);
+        }
+    }
+
+    writeImageToBotOutputCanvas(imageBytes) {
+        if (!this.botOutputCanvasElement) {
+            // Create a new canvas element with fixed dimensions
+            this.botOutputCanvasElement = document.createElement('canvas');
+            this.botOutputCanvasElement.width = 1280; // Fixed width
+            this.botOutputCanvasElement.height = 640; // Fixed height
+        }
+        
+        return new Promise((resolve, reject) => {
+            // Create an Image object to load the PNG
+            const img = new Image();
+            
+            // Convert the image bytes to a data URL
+            const blob = new Blob([imageBytes], { type: 'image/png' });
+            const url = URL.createObjectURL(blob);
+            
+            // Draw the image on the canvas when it loads
+            img.onload = () => {
+                // Revoke the URL immediately after image is loaded
+                URL.revokeObjectURL(url);
+                
+                const canvas = this.botOutputCanvasElement;
+                const ctx = canvas.getContext('2d');
+                
+                // Clear the canvas
+                ctx.fillStyle = 'black';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Calculate aspect ratios
+                const imgAspect = img.width / img.height;
+                const canvasAspect = canvas.width / canvas.height;
+                
+                // Calculate dimensions to fit image within canvas with letterboxing
+                let renderWidth, renderHeight, offsetX, offsetY;
+                
+                if (imgAspect > canvasAspect) {
+                    // Image is wider than canvas (horizontal letterboxing)
+                    renderWidth = canvas.width;
+                    renderHeight = canvas.width / imgAspect;
+                    offsetX = 0;
+                    offsetY = (canvas.height - renderHeight) / 2;
+                } else {
+                    // Image is taller than canvas (vertical letterboxing)
+                    renderHeight = canvas.height;
+                    renderWidth = canvas.height * imgAspect;
+                    offsetX = (canvas.width - renderWidth) / 2;
+                    offsetY = 0;
+                }
+                
+                this.imageDrawParams = {
+                    img: img,
+                    offsetX: offsetX,
+                    offsetY: offsetY,
+                    width: renderWidth,
+                    height: renderHeight
+                };
+
+                // Clear any existing draw interval
+                if (this.drawInterval) {
+                    clearInterval(this.drawInterval);
+                }
+
+                ctx.drawImage(
+                    this.imageDrawParams.img,
+                    this.imageDrawParams.offsetX,
+                    this.imageDrawParams.offsetY,
+                    this.imageDrawParams.width,
+                    this.imageDrawParams.height
+                );
+
+                // Set up interval to redraw the image every 1 second
+                this.drawInterval = setInterval(() => {
+                    ctx.drawImage(
+                        this.imageDrawParams.img,
+                        this.imageDrawParams.offsetX,
+                        this.imageDrawParams.offsetY,
+                        this.imageDrawParams.width,
+                        this.imageDrawParams.height
+                    );
+                }, 1000);
+                
+                // Resolve the promise now that image is loaded
+                resolve();
+            };
+            
+            // Handle image loading errors
+            img.onerror = (error) => {
+                URL.revokeObjectURL(url);
+                reject(new Error('Failed to load image'));
+            };
+            
+            // Set the image source to start loading
+            img.src = url;
+        });
+    }
+}
+
+const botOutputManager = new BotOutputManager();
+window.botOutputManager = botOutputManager;
+
+navigator.mediaDevices.getUserMedia = function(constraints) {
+    return _getUserMedia.call(navigator.mediaDevices, constraints)
+      .then(originalStream => {
+        console.log("Intercepted getUserMedia:", constraints);
+  
+        // Stop any original tracks so we don't actually capture real mic/cam
+        originalStream.getTracks().forEach(t => t.stop());
+  
+        // Create a new MediaStream to return
+        const newStream = new MediaStream();
+  
+        // Video sending not supported yet
+        /* 
+        if (constraints.video && botOutputVideoElementCaptureStream) {
+            console.log("Adding video track", botOutputVideoElementCaptureStream.getVideoTracks()[0]);
+            newStream.addTrack(botOutputVideoElementCaptureStream.getVideoTracks()[0]);
+        }
+        */
+
+        if (constraints.video && botOutputManager.botOutputCanvasElementCaptureStream) {
+            console.log("Adding canvas track", botOutputManager.botOutputCanvasElementCaptureStream.getVideoTracks()[0]);
+            newStream.addTrack(botOutputManager.botOutputCanvasElementCaptureStream.getVideoTracks()[0]);
+        }
+
+        // Audio sending not supported yet
+        /*
+        // If audio is requested, add our fake audio track
+        if (constraints.audio) {  // Only create once
+            if (!audioContextForBotOutput) {
+                // Create AudioContext and nodes
+                audioContextForBotOutput = new AudioContext();
+                gainNode = audioContextForBotOutput.createGain();
+                destination = audioContextForBotOutput.createMediaStreamDestination();
+
+                // Set initial gain
+                gainNode.gain.value = 1.0;
+
+                // Connect gain node to both destinations
+                gainNode.connect(destination);
+                gainNode.connect(audioContextForBotOutput.destination);  // For local monitoring
+
+                botOutputAudioTrack = destination.stream.getAudioTracks()[0];
+            }
+            newStream.addTrack(botOutputAudioTrack);
+        }
+        */
+
+        // Video sending not supported yet
+        /*
+        if (botOutputVideoElement && audioContextForBotOutput && !videoSource) {
+            videoSource = audioContextForBotOutput.createMediaElementSource(botOutputVideoElement);
+            videoSource.connect(gainNode);
+        }
+        */
+  
+        return newStream;
+      })
+      .catch(err => {
+        console.error("Error in custom getUserMedia override:", err);
+        throw err;
+      });
+  };

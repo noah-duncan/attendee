@@ -35,11 +35,6 @@ Bots go through these lifecycle states:
 - complete: Transcription finished
 - failed: Transcription failed
 
-## Recording Formats
-Bots support two recording formats:
-1. WEBM (default)
-2. MP4
-
 ## Transcription Features
 1. Non-realtime and realtime transcription (via Deepgram)
 2. Multiple language support
@@ -56,9 +51,8 @@ Bots can be configured with:
    - Deepgram-specific options
 
 2. Recording Settings
-   - Format selection (WEBM/MP4)
    - Recording type (Audio and Video / Audio Only)
-
+   - Recording view (Speaker View / Gallery View)
 3. RTMP Streaming Settings
    - Destination URL (must start with rtmp:// or rtmps://)
    - Stream key

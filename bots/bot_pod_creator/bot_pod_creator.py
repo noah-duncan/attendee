@@ -43,8 +43,9 @@ class BotPodCreator:
             bot_name = f"bot-{bot_id}-{uuid.uuid4().hex[:8]}"
 
         # Set the command based on bot_id
-        # python manage.py run_bot --botid
-        command = ["python", "manage.py", "run_bot", "--botid", str(bot_id)]
+        # Run entrypoint script first, then the bot command
+        bot_cmd = f"python manage.py run_bot --botid {bot_id}"
+        command = ["/bin/bash", "-c", f"/opt/bin/entrypoint.sh && {bot_cmd}"]
 
         # Metadata labels matching the deployment
         labels = {
@@ -70,13 +71,13 @@ class BotPodCreator:
                         command=command,
                         resources=client.V1ResourceRequirements(
                             requests={
-                                "cpu": "4",
-                                "memory": "4Gi",
-                                "ephemeral-storage": "10Gi"
+                                "cpu": os.getenv("BOT_CPU_REQUEST", "4"),
+                                "memory": os.getenv("BOT_MEMORY_REQUEST", "4Gi"),
+                                "ephemeral-storage": os.getenv("BOT_EPHEMERAL_STORAGE_REQUEST", "10Gi")
                             },
                             limits={
-                                "memory": "4Gi",
-                                "ephemeral-storage": "10Gi"
+                                "memory": os.getenv("BOT_MEMORY_LIMIT", "4Gi"),
+                                "ephemeral-storage": os.getenv("BOT_EPHEMERAL_STORAGE_LIMIT", "10Gi")
                             }
                         ),
                         env_from=[
@@ -101,7 +102,23 @@ class BotPodCreator:
                         name="regcred"
                     )
                 ],
-                termination_grace_period_seconds=60
+                termination_grace_period_seconds=60,
+                # Add tolerations to allow pods to be scheduled on nodes with specific taints
+                # This can help with scheduling during autoscaling events
+                tolerations=[
+                    client.V1Toleration(
+                        key="node.kubernetes.io/not-ready",
+                        operator="Exists",
+                        effect="NoExecute",
+                        toleration_seconds=900  # Tolerate not-ready nodes for 15 minutes
+                    ),
+                    client.V1Toleration(
+                        key="node.kubernetes.io/unreachable",
+                        operator="Exists",
+                        effect="NoExecute",
+                        toleration_seconds=900  # Tolerate unreachable nodes for 15 minutes
+                    )
+                ]
             )
         )
 

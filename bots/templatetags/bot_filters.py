@@ -2,6 +2,8 @@ import hashlib
 
 from django import template
 
+from bots.models import WebhookTriggerTypes
+
 register = template.Library()
 
 
@@ -57,3 +59,11 @@ def participant_color(uuid):
 @register.filter
 def md5(value):
     return hashlib.md5(str(value).encode()).hexdigest()
+
+
+@register.filter
+def map_trigger_types(trigger_or_triggers):
+    """Transform webhook trigger types to their API codes, works for both single triggers and lists"""
+    if hasattr(trigger_or_triggers, "__iter__") and not isinstance(trigger_or_triggers, str):
+        return [WebhookTriggerTypes.trigger_type_to_api_code(x) for x in trigger_or_triggers]
+    return WebhookTriggerTypes.trigger_type_to_api_code(trigger_or_triggers)

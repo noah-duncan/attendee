@@ -5,11 +5,9 @@
         <div class="card bg-info-subtle text-dark">
             <div class="card-body">
                 <h5 class="card-title">Hi {{ request.user.email }}! 👋</h5>
-                <p class="card-text">Welcome to Attendee - the open source meeting bot API. We're in public beta and our hosted instance is free to use.</p>
+                <p class="card-text">Welcome to Attendee - the open source meeting bot API. You have 5 hours of free credits to get started.</p>
                 <p class="card-text mb-0">
-                    If you're building something that needs meeting bots, we'd love to chat!
-                    
-                    Join our <a href="https://join.slack.com/t/attendeecommu-rff8300/shared_invite/zt-2uhpam6p2-ZzLAoVrljbL2UEjqdSHrgQ">Slack</a> or send us an <a href="mailto:crusty.noah@gmail.com">email</a>. And please ⭐ us on <a href="https://github.com/noah-duncan/attendee" target="_blank" rel="noopener noreferrer">Github</a> if you find us useful. 
+                    If you're building something that needs meeting bots, we'd love to chat on our <a href="https://join.slack.com/t/attendeecommu-rff8300/shared_invite/zt-2uhpam6p2-ZzLAoVrljbL2UEjqdSHrgQ">Slack</a>. And please ⭐ us on <a href="https://github.com/noah-duncan/attendee" target="_blank" rel="noopener noreferrer">Github</a> if you find us useful. 
                     
                 </p>
             </div>
@@ -23,8 +21,8 @@
                         1. Add credentials
                         {% if not quick_start.has_credentials %}
                             <div class="mt-2">
-                                <a href="{% url 'projects:project-settings' project.object_id %}" class="btn btn-sm btn-primary">
-                                    Go to Settings
+                                <a href="{% url 'projects:project-credentials' project.object_id %}" class="btn btn-sm btn-primary">
+                                    Go to Credentials
                                 </a>
                             </div>
                         {% endif %}

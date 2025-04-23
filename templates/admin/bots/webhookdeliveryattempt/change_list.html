@@ -1,0 +1,33 @@
+{% extends "admin/change_list.html" %}
+{% load i18n admin_urls %}
+
+{% block content_title %}
+    <h1>Webhook Delivery Attempts</h1>
+    <div style="margin-bottom: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 5px;">
+        <h2 style="margin-top: 0;">Webhook Delivery Statistics</h2>
+        <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+            <div style="flex: 1; min-width: 200px;">
+                <h3>Overall Statistics</h3>
+                <p><strong>Total Attempts:</strong> {{ webhook_stats.total }}</p>
+                <p><strong>Success:</strong> {{ webhook_stats.success }} ({{ webhook_stats.success_pct }}%)</p>
+                <p><strong>Failure:</strong> {{ webhook_stats.failure }} ({{ webhook_stats.failure_pct }}%)</p>
+                <p><strong>Pending:</strong> {{ webhook_stats.pending }} ({{ webhook_stats.pending_pct }}%)</p>
+            </div>
+            <div style="flex: 1; min-width: 200px;">
+                <h3>Latency (Last 12 Hours)</h3>
+                <p><strong>Successful Deliveries:</strong> {{ webhook_stats.recent_success_count }}</p>
+                {% if webhook_stats.avg_latency is not None %}
+                    <p><strong>Average Latency:</strong> {{ webhook_stats.avg_latency }} seconds</p>
+                    <p><strong>Minimum Latency:</strong> {{ webhook_stats.min_latency }} seconds</p>
+                    <p><strong>Maximum Latency:</strong> {{ webhook_stats.max_latency }} seconds</p>
+                {% else %}
+                    <p><em>No successful webhooks in the last 12 hours</em></p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block content %}
+    {{ block.super }}
+{% endblock %} 

@@ -1,0 +1,90 @@
+<div class="modal-header">
+  <h5 class="modal-title">Webhook Created</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<div class="modal-body">
+  <div class="alert alert-warning">
+    <strong>Important:</strong> The webhook secret will only be shown at time of
+    creation. Please copy and save this token securely on your server and use it
+    to validate the signature of incoming webhook payloads using <a href="https://webhooks.fyi/security/hmac" target="_blank" rel="noopener noreferrer">HMAC</a>.
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Webhook URL</label>
+    <input
+      type="text"
+      class="form-control"
+      value="{{ url }}"
+      readonly
+      tabindex="-1"
+      style="pointer-events: none"
+    />
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Subscribed Triggers</label>
+    <input type="text" class="form-control" value="{{ triggers|join:", " }}"
+    readonly tabindex="-1" style="pointer-events: none" />
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Secret</label>
+    <div class="input-group">
+      <input
+        type="text"
+        class="form-control"
+        value="{{ secret }}"
+        id="secretValue"
+        readonly
+        tabindex="-1"
+        style="pointer-events: none"
+      />
+      <button
+        class="btn btn-outline-secondary"
+        type="button"
+        onclick="copyWebhookSecret()"
+      >
+        <i class="bi bi-clipboard"></i>
+      </button>
+    </div>
+  </div>
+</div>
+<div class="modal-footer">
+  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+    Close
+  </button>
+</div>
+
+<script>
+  function copyWebhookSecret() {
+    const secretInput = document.getElementById("secretValue");
+    navigator.clipboard.writeText(secretInput.value);
+
+    const button = event.target.closest("button");
+    const originalHtml = button.innerHTML;
+    button.innerHTML = '<i class="bi bi-check"></i>';
+    setTimeout(() => {
+      button.innerHTML = originalHtml;
+    }, 1000);
+  }
+
+  var modal = new bootstrap.Modal(
+    document.getElementById("webhookSubscribeResultModal")
+  );
+  modal.show();
+
+  // Add event listener to refresh table when modal is hidden
+  document
+    .getElementById("webhookSubscribeResultModal")
+    .addEventListener("hidden.bs.modal", function () {
+      htmx.ajax("GET", window.location.pathname, {
+        target: "#webhooksTable",
+        select: "#webhooksTable",
+        swap: "outerHTML",
+      });
+    });
+
+  var createModal = bootstrap.Modal.getInstance(
+    document.getElementById("createWebhookModal")
+  );
+  if (createModal) {
+    createModal.hide();
+  }
+</script>

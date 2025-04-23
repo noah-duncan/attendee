@@ -1,13 +1,13 @@
 import hashlib
 import json
 import math
-import os
 import random
+import secrets
 import string
 
 from concurrency.exceptions import RecordModifiedError
 from concurrency.fields import IntegerVersionField
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
@@ -17,6 +17,9 @@ from django.utils import timezone
 from django.utils.crypto import get_random_string
 
 from accounts.models import Organization
+from bots.webhook_utils import trigger_webhook
+
+# Create your models here.
 
 
 class Project(models.Model):
@@ -139,6 +142,7 @@ class Bot(models.Model):
     state = models.IntegerField(choices=BotStates.choices, default=BotStates.READY, null=False)
 
     settings = models.JSONField(null=False, default=dict)
+    metadata = models.JSONField(null=True, blank=True)
 
     first_heartbeat_timestamp = models.IntegerField(null=True, blank=True)
     last_heartbeat_timestamp = models.IntegerField(null=True, blank=True)
@@ -202,13 +206,25 @@ class Bot(models.Model):
         recording_settings = self.settings.get("recording_settings", {})
         if recording_settings is None:
             recording_settings = {}
-        return recording_settings.get("format", RecordingFormats.WEBM)
+        return recording_settings.get("format", RecordingFormats.MP4)
 
     def recording_view(self):
         recording_settings = self.settings.get("recording_settings", {})
         if recording_settings is None:
             recording_settings = {}
         return recording_settings.get("view", RecordingViews.SPEAKER_VIEW)
+
+    def create_debug_recording(self):
+        from bots.utils import meeting_type_from_url
+
+        # Temporarily enabling this for all google meet meetings
+        if meeting_type_from_url(self.meeting_url) == MeetingTypes.GOOGLE_MEET:
+            return True
+
+        debug_settings = self.settings.get("debug_settings", {})
+        if debug_settings is None:
+            debug_settings = {}
+        return debug_settings.get("create_debug_recording", False)
 
     def last_bot_event(self):
         return self.bot_events.order_by("-created_at").first()
@@ -235,6 +251,7 @@ class CreditTransaction(models.Model):
     centicredits_delta = models.IntegerField(null=False)
     parent_transaction = models.ForeignKey("self", on_delete=models.PROTECT, null=True, related_name="child_transactions")
     bot = models.ForeignKey(Bot, on_delete=models.PROTECT, null=True, related_name="credit_transactions")
+    stripe_payment_intent_id = models.CharField(max_length=255, null=True, blank=True)
     description = models.TextField(null=True, blank=True)
 
     class Meta:
@@ -242,15 +259,25 @@ class CreditTransaction(models.Model):
             models.UniqueConstraint(fields=["parent_transaction"], name="unique_child_transaction", condition=models.Q(parent_transaction__isnull=False)),
             models.UniqueConstraint(fields=["organization"], name="unique_root_transaction", condition=models.Q(parent_transaction__isnull=True)),
             models.UniqueConstraint(fields=["bot"], name="unique_bot_transaction", condition=models.Q(bot__isnull=False)),
+            models.UniqueConstraint(fields=["stripe_payment_intent_id"], name="unique_stripe_payment_intent_id", condition=models.Q(stripe_payment_intent_id__isnull=False)),
         ]
 
     def __str__(self):
         return f"{self.organization.name} - {self.centicredits_delta}"
 
+    def credits_delta(self):
+        return self.centicredits_delta / 100
+
+    def credits_after(self):
+        return self.centicredits_after / 100
+
+    def credits_before(self):
+        return self.centicredits_before / 100
+
 
 class CreditTransactionManager:
     @classmethod
-    def create_transaction(cls, organization: Organization, centicredits_delta: int, bot: Bot = None, description: str = None) -> CreditTransaction:
+    def create_transaction(cls, organization: Organization, centicredits_delta: int, bot: Bot = None, stripe_payment_intent_id: str = None, description: str = None) -> CreditTransaction:
         """
         Creates a credit transaction for an organization. If no root transaction exists,
         creates one first. Otherwise creates a child transaction.
@@ -287,6 +314,7 @@ class CreditTransactionManager:
                         centicredits_delta=centicredits_delta,
                         parent_transaction=leaf_transaction,
                         bot=bot,
+                        stripe_payment_intent_id=stripe_payment_intent_id,
                         description=description,
                     )
 
@@ -365,6 +393,8 @@ class BotEventSubTypes(models.IntegerChoices):
     LEAVE_REQUESTED_AUTO_LEAVE_SILENCE = 11, "Leave requested - Auto leave silence"
     LEAVE_REQUESTED_AUTO_LEAVE_ONLY_PARTICIPANT_IN_MEETING = 12, "Leave requested - Auto leave only participant in meeting"
     FATAL_ERROR_HEARTBEAT_TIMEOUT = 13, "Fatal error - Heartbeat timeout"
+    COULD_NOT_JOIN_MEETING_MEETING_NOT_FOUND = 14, "Bot could not join meeting - Meeting not found"
+    FATAL_ERROR_BOT_NOT_LAUNCHED = 15, "Fatal error - Bot not launched"
 
     @classmethod
     def sub_type_to_api_code(cls, value):
@@ -383,6 +413,8 @@ class BotEventSubTypes(models.IntegerChoices):
             cls.LEAVE_REQUESTED_AUTO_LEAVE_SILENCE: "auto_leave_silence",
             cls.LEAVE_REQUESTED_AUTO_LEAVE_ONLY_PARTICIPANT_IN_MEETING: "auto_leave_only_participant_in_meeting",
             cls.FATAL_ERROR_HEARTBEAT_TIMEOUT: "heartbeat_timeout",
+            cls.COULD_NOT_JOIN_MEETING_MEETING_NOT_FOUND: "meeting_not_found",
+            cls.FATAL_ERROR_BOT_NOT_LAUNCHED: "bot_not_launched",
         }
         return mapping.get(value)
 
@@ -423,10 +455,10 @@ class BotEvent(models.Model):
             models.CheckConstraint(
                 check=(
                     # For FATAL_ERROR event type, must have one of the valid event subtypes
-                    (Q(event_type=BotEventTypes.FATAL_ERROR) & (Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_PROCESS_TERMINATED) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_RTMP_CONNECTION_FAILED) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_UI_ELEMENT_NOT_FOUND) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_HEARTBEAT_TIMEOUT)))
+                    (Q(event_type=BotEventTypes.FATAL_ERROR) & (Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_PROCESS_TERMINATED) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_RTMP_CONNECTION_FAILED) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_UI_ELEMENT_NOT_FOUND) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_HEARTBEAT_TIMEOUT) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_BOT_NOT_LAUNCHED)))
                     |
                     # For COULD_NOT_JOIN event type, must have one of the valid event subtypes
-                    (Q(event_type=BotEventTypes.COULD_NOT_JOIN) & (Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_NOT_STARTED_WAITING_FOR_HOST) | Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_AUTHORIZATION_FAILED) | Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_MEETING_STATUS_FAILED) | Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_UNPUBLISHED_ZOOM_APP) | Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_SDK_INTERNAL_ERROR) | Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_REQUEST_TO_JOIN_DENIED)))
+                    (Q(event_type=BotEventTypes.COULD_NOT_JOIN) & (Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_NOT_STARTED_WAITING_FOR_HOST) | Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_AUTHORIZATION_FAILED) | Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_MEETING_STATUS_FAILED) | Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_UNPUBLISHED_ZOOM_APP) | Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_SDK_INTERNAL_ERROR) | Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_REQUEST_TO_JOIN_DENIED) | Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_MEETING_NOT_FOUND)))
                     |
                     # For LEAVE_REQUESTED event type, must have one of the valid event subtypes or be null (for backwards compatibility, this will eventually be removed)
                     (Q(event_type=BotEventTypes.LEAVE_REQUESTED) & (Q(event_sub_type=BotEventSubTypes.LEAVE_REQUESTED_USER_REQUESTED) | Q(event_sub_type=BotEventSubTypes.LEAVE_REQUESTED_AUTO_LEAVE_SILENCE) | Q(event_sub_type=BotEventSubTypes.LEAVE_REQUESTED_AUTO_LEAVE_ONLY_PARTICIPANT_IN_MEETING) | Q(event_sub_type__isnull=True)))
@@ -459,6 +491,7 @@ class BotEventManager:
                 BotStates.JOINED_NOT_RECORDING,
                 BotStates.WAITING_ROOM,
                 BotStates.LEAVING,
+                BotStates.POST_PROCESSING,
             ],
             "to": BotStates.FATAL_ERROR,
         },
@@ -534,6 +567,12 @@ class BotEventManager:
     @classmethod
     def is_terminal_state(cls, state: int):
         return state in cls.TERMINAL_STATES
+
+    @classmethod
+    def bot_event_should_incur_charges(cls, event: BotEvent):
+        if event.event_type == BotEventTypes.FATAL_ERROR:
+            return False
+        return True
 
     @classmethod
     def get_terminal_states_q_filter(cls):
@@ -631,7 +670,7 @@ class BotEventManager:
                         for recording in in_progress_recordings:
                             RecordingManager.set_recording_complete(recording)
 
-                        if os.getenv("CHARGE_CREDITS_FOR_BOTS") == "true":
+                        if settings.CHARGE_CREDITS_FOR_BOTS and cls.bot_event_should_incur_charges(event):
                             centicredits_consumed = bot.centicredits_consumed()
                             if centicredits_consumed > 0:
                                 CreditTransactionManager.create_transaction(
@@ -640,6 +679,19 @@ class BotEventManager:
                                     bot=bot,
                                     description=f"For bot {bot.object_id}",
                                 )
+
+                    # Trigger webhook for this event
+                    trigger_webhook(
+                        webhook_trigger_type=WebhookTriggerTypes.BOT_STATE_CHANGE,
+                        bot=bot,
+                        payload={
+                            "event_type": BotEventTypes.type_to_api_code(event_type),
+                            "event_sub_type": BotEventSubTypes.sub_type_to_api_code(event_sub_type),
+                            "old_state": BotStates.state_to_api_code(old_state),
+                            "new_state": BotStates.state_to_api_code(bot.state),
+                            "created_at": event.created_at.isoformat(),
+                        },
+                    )
 
                     return event
 
@@ -1154,3 +1206,95 @@ class BotDebugScreenshot(models.Model):
 
     def __str__(self):
         return f"Debug Screenshot {self.object_id} for event {self.bot_event}"
+
+
+class WebhookSecret(models.Model):
+    _secret = models.BinaryField(
+        null=True,
+        editable=False,  # Prevents editing through admin/forms
+    )
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="webhook_secrets")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def get_secret(self):
+        """Decrypt and return secret"""
+        if not self._secret:
+            return None
+        try:
+            f = Fernet(settings.CREDENTIALS_ENCRYPTION_KEY)
+            decrypted_data = f.decrypt(bytes(self._secret))
+            return decrypted_data
+        except (InvalidToken, ValueError):
+            return None
+
+    def save(self, *args, **kwargs):
+        # Only generate a secret if this is a new object (not yet saved to DB)
+        if not self.pk and not self._secret:
+            secret = secrets.token_bytes(32)
+            f = Fernet(settings.CREDENTIALS_ENCRYPTION_KEY)
+            self._secret = f.encrypt(secret)
+        super().save(*args, **kwargs)
+
+
+class WebhookTriggerTypes(models.IntegerChoices):
+    BOT_STATE_CHANGE = 1, "Bot State Change"
+    # add other event types here
+
+    @classmethod
+    def trigger_type_to_api_code(cls, value):
+        mapping = {
+            cls.BOT_STATE_CHANGE: "bot.state_change",
+        }
+        return mapping.get(value)
+
+
+class WebhookSubscription(models.Model):
+    def default_triggers():
+        return [WebhookTriggerTypes.BOT_STATE_CHANGE]
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="webhook_subscriptions")
+
+    OBJECT_ID_PREFIX = "webhook_"
+    object_id = models.CharField(max_length=32, unique=True, editable=False)
+
+    def save(self, *args, **kwargs):
+        if not self.object_id:
+            # Generate a random 16-character string
+            random_string = "".join(random.choices(string.ascii_letters + string.digits, k=16))
+            self.object_id = f"{self.OBJECT_ID_PREFIX}{random_string}"
+        super().save(*args, **kwargs)
+
+    url = models.URLField()
+    triggers = models.JSONField(default=default_triggers)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class WebhookDeliveryAttemptStatus(models.IntegerChoices):
+    PENDING = 1, "Pending"
+    SUCCESS = 2, "Success"
+    FAILURE = 3, "Failure"
+
+
+class WebhookDeliveryAttempt(models.Model):
+    webhook_subscription = models.ForeignKey(WebhookSubscription, on_delete=models.CASCADE, related_name="webhookdelivery_attempts")
+    webhook_trigger_type = models.IntegerField(choices=WebhookTriggerTypes.choices, default=WebhookTriggerTypes.BOT_STATE_CHANGE, null=False)
+    idempotency_key = models.UUIDField(unique=True, editable=False)
+    bot = models.ForeignKey(Bot, on_delete=models.SET_NULL, null=True, related_name="webhook_delivery_attempts")
+    payload = models.JSONField(default=dict)
+    status = models.IntegerField(choices=WebhookDeliveryAttemptStatus.choices, default=WebhookDeliveryAttemptStatus.PENDING, null=False)
+    attempt_count = models.IntegerField(default=0)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    succeeded_at = models.DateTimeField(null=True, blank=True)
+    response_body_list = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def add_to_response_body_list(self, response_body):
+        """Add content to the response body list without saving."""
+        if self.response_body_list is None:
+            self.response_body_list = [response_body]
+        else:
+            self.response_body_list.append(response_body)

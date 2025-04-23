@@ -1,0 +1,241 @@
+{% extends 'projects/sidebar.html' %} {% load bot_filters %} {% block content %}
+<!-- Create Modal -->
+<div class="modal" id="createWebhookModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Create Webhook</h5>
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <form
+          hx-post="{% url 'projects:create-webhook' project.object_id %}"
+          hx-target="#webhookSubscribeResult"
+          hx-swap="innerHTML"
+          hx-on::after-request="this.reset()"
+        >
+          {% csrf_token %}
+          <div class="mb-3">
+            <label for="url" class="form-label">Webhook URL</label>
+            <input
+              type="text"
+              class="form-control"
+              id="url"
+              name="url"
+              required
+            />
+            <div class="text-danger mt-2 d-none" id="url-validation-message">
+              Please enter a valid URL starting with https://
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Triggers</label>
+            <div class="border rounded p-3" id="triggers-container">
+              <div class="d-flex flex-wrap gap-2">
+                {% for option in webhook_options %}
+                <div class="form-check">
+                  <input 
+                    class="form-check-input trigger-checkbox" 
+                    type="checkbox" 
+                    name="triggers[]" 
+                    value="{{ option }}" 
+                    id="trigger-{{ forloop.counter }}"
+                  >
+                  <label class="form-check-label" for="trigger-{{ forloop.counter }}">
+                    {{ option|map_trigger_types }}
+                  </label>
+                </div>
+                {% endfor %}
+              </div>
+              <div class="text-danger mt-2 d-none" id="trigger-validation-message">
+                Please select at least one trigger
+              </div>
+            </div>
+          </div>
+          <button id="submitBtn" type="submit" class="btn btn-primary" onclick="validateForm(event)">
+            Create
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Result Modal (will be populated after webhook subscription) -->
+<div class="modal" id="webhookSubscribeResultModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" id="webhookSubscribeResult">
+      <!-- Content will be replaced by HTMX -->
+    </div>
+  </div>
+</div>
+
+<!-- Existing Webhooks Table -->
+
+<div class="container mt-4">
+  <div class="table-responsive" id="webhooksTable">
+    {% if webhooks %}
+    <h2>Webhooks</h2>
+    <div class="alert alert-info d-inline-block mb-2" role="alert">
+      <i class="bi bi-info-circle me-2"></i>
+      Need help with webhooks? Check out
+      <a href="https://docs.attendee.dev/guides/webhooks" class="alert-link" target="_blank">the docs</a>!
+    </div>
+    <div>
+      <button
+        class="btn btn-primary mb-3 mt-3"
+        data-bs-toggle="modal"
+        data-bs-target="#createWebhookModal"
+      >
+        Create Webhook
+      </button>
+    </div>
+
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Webhook URL</th>
+          <th>Subscribed Triggers</th>
+          <th>Is Active</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for webhook in webhooks %}
+        <tr>
+          <td>{{ webhook.url }}</td>
+          <td>{{ webhook.triggers|map_trigger_types|join:", " }}</td>
+          <td>
+            {% if webhook.is_active %}
+            <input type="checkbox" checked disabled />
+            {% else %}
+            <input type="checkbox" disabled />
+            {% endif %}
+          </td>
+          <td>
+            {{ webhook.created_at|date:"M d, Y H:i" }}
+          </td>
+          <td>
+            <button
+              class="btn btn-danger btn-sm"
+              data-bs-toggle="modal"
+              data-bs-target="#deleteModal{{ webhook.object_id }}"
+            >
+              Delete
+            </button>
+
+            <!-- Delete Confirmation Modal -->
+            <div
+              class="modal"
+              id="deleteModal{{ webhook.object_id }}"
+              tabindex="-1"
+            >
+              <div class="modal-dialog">
+                <div class="modal-content">
+                  <div class="modal-header">
+                    <h5 class="modal-title">Confirm Deletion</h5>
+                    <button
+                      type="button"
+                      class="btn-close"
+                      data-bs-dismiss="modal"
+                    ></button>
+                  </div>
+                  <div class="modal-body">
+                    <p>
+                      Are you sure you want to delete the webhook? This action
+                      cannot be undone.
+                    </p>
+                  </div>
+                  <div class="modal-footer">
+                    <button
+                      type="button"
+                      class="btn btn-secondary"
+                      data-bs-dismiss="modal"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      class="btn btn-danger"
+                      hx-delete="{% url 'projects:delete-webhook' project.object_id webhook.object_id %}"
+                      hx-swap="outerHTML"
+                      hx-select="#webhooksTable"
+                      hx-target="#webhooksTable"
+                      hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                      data-bs-dismiss="modal"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <h2>Webhooks</h2>
+    <div class="alert alert-info d-inline-block mb-2" role="alert">
+      <i class="bi bi-info-circle me-2"></i>
+      Need help with webhooks? Check out
+      <a href="https://docs.attendee.dev/guides/webhooks" class="alert-link" target="_blank">the docs</a>!
+    </div>
+    <p class="text-center mt-4">No webhooks found</p>
+    <p class="text-center">
+      <button
+        class="btn btn-primary mb-3"
+        data-bs-toggle="modal"
+        data-bs-target="#createWebhookModal"
+      >
+        Create Webhook
+      </button>
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+  function validateForm(event) {
+    let isValid = true;
+    
+    // Validate triggers
+    const checkboxes = document.querySelectorAll('.trigger-checkbox:checked');
+    const validationMessage = document.getElementById('trigger-validation-message');
+    
+    if (checkboxes.length === 0) {
+      validationMessage.classList.remove('d-none');
+      isValid = false;
+    } else {
+      validationMessage.classList.add('d-none');
+    }
+    
+    // Validate URL
+    const urlInput = document.getElementById('url');
+    const urlValue = urlInput.value.trim();
+    const urlValidationMessage = document.getElementById('url-validation-message');
+    
+    // Regular expression to validate URL format and ensure it starts with https://
+    const urlRegex = /^https:\/\/([\w-]+(\.[\w-]+)+)([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])?$/;
+    
+    if (!urlRegex.test(urlValue)) {
+      urlValidationMessage.classList.remove('d-none');
+      isValid = false;
+    } else {
+      urlValidationMessage.classList.add('d-none');
+    }
+    
+    if (!isValid) {
+      event.preventDefault();
+    }
+    
+    return isValid;
+  }
+</script>
+
+{% endblock %}

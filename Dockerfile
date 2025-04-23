@@ -79,7 +79,7 @@ FROM base AS deps
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-ENV TINI_VERSION v0.19.0
+ENV TINI_VERSION=v0.19.0
 ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini
 RUN chmod +x /tini
 
@@ -90,5 +90,8 @@ FROM deps AS build
 WORKDIR $cwd
 COPY . .
 
-CMD ["/bin/bash"]
+COPY entrypoint.sh /opt/bin/entrypoint.sh
+RUN chmod +x /opt/bin/entrypoint.sh
+RUN adduser root pulse-access
 
+# CMD ["/bin/bash"] is added in entrypoint.sh

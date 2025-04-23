@@ -1,12 +1,12 @@
 import base64
 import json
-import os
 import threading
 import time
 from unittest.mock import MagicMock, call, patch
 
 import zoom_meeting_sdk as zoom
 from django.db import connection
+from django.test import override_settings
 from django.test.testcases import TransactionTestCase
 
 from bots.bot_controller import BotController
@@ -304,9 +304,20 @@ class TestZoomBot(TransactionTestCase):
     def setUpClass(cls):
         super().setUpClass()
 
-        # Set required environment variables
-        os.environ["AWS_RECORDING_STORAGE_BUCKET_NAME"] = "test-bucket"
-        os.environ["CHARGE_CREDITS_FOR_BOTS"] = "true"
+        # Instead of setting environment variables directly:
+        # os.environ["AWS_RECORDING_STORAGE_BUCKET_NAME"] = "test-bucket"
+        # os.environ["CHARGE_CREDITS_FOR_BOTS"] = "true"
+
+        # The settings have already been loaded, so we need to override them
+        # These will be applied to all tests in this class
+        cls.settings_override = override_settings(AWS_RECORDING_STORAGE_BUCKET_NAME="test-bucket", CHARGE_CREDITS_FOR_BOTS=True)
+        cls.settings_override.enable()
+
+    @classmethod
+    def tearDownClass(cls):
+        # Clean up the settings override when done
+        cls.settings_override.disable()
+        super().tearDownClass()
 
     def setUp(self):
         # Recreate organization and project for each test
@@ -579,12 +590,18 @@ class TestZoomBot(TransactionTestCase):
                 2,  # Simulated participant ID that's not the bot
             )
 
-            # Advance time past silence threshold (300 seconds)
+            # Advance time past silence activation threshold (1200 seconds)
             nonlocal current_time
-            current_time += 301
+            current_time += 1201
             mock_time.return_value = current_time
 
-            # Trigger check of auto-leave conditions
+            # Trigger check of auto-leave conditions which should activate silence detection
+            adapter.check_auto_leave_conditions()
+
+            current_time += 601
+            mock_time.return_value = current_time
+
+            # Trigger check of auto-leave conditions which should trigger auto-leave
             adapter.check_auto_leave_conditions()
 
             # Sleep to allow for event processing
@@ -617,6 +634,10 @@ class TestZoomBot(TransactionTestCase):
 
         # Assert that the bot is in the ENDED state
         self.assertEqual(self.bot.state, BotStates.ENDED)
+
+        # Assert that silence detection was activated
+        self.assertTrue(controller.adapter.silence_detection_activated)
+        self.assertIsNotNone(controller.adapter.joined_at)
 
         # Verify bot events in sequence
         bot_events = self.bot.bot_events.all()
@@ -1731,6 +1752,10 @@ class TestZoomBot(TransactionTestCase):
             fatal_error_event.metadata,
             {"rtmp_destination_url": "rtmp://example.com/live/stream/1234"},
         )
+
+        # Verify that the bot did not incur charges
+        credit_transaction = CreditTransaction.objects.filter(bot=self.bot).first()
+        self.assertIsNone(credit_transaction, "A credit transaction was created for the bot")
 
     @patch(
         "bots.zoom_bot_adapter.video_input_manager.zoom",

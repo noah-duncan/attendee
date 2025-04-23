@@ -18,7 +18,8 @@ from bots.bot_controller.automatic_leave_configuration import AutomaticLeaveConf
 from bots.models import RecordingViews
 from bots.utils import half_ceil, scale_i420
 
-from .ui_methods import UiRequestToJoinDeniedException, UiRetryableException
+from .debug_screen_recorder import DebugScreenRecorder
+from .ui_methods import UiMeetingNotFoundException, UiRequestToJoinDeniedException, UiRetryableException, UiRetryableExpectedException
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,9 @@ class WebBotAdapter(BotAdapter):
         upsert_caption_callback,
         automatic_leave_configuration: AutomaticLeaveConfiguration,
         recording_view: RecordingViews,
+        should_create_debug_recording: bool,
+        start_recording_screen_callback,
+        stop_recording_screen_callback,
     ):
         self.display_name = display_name
         self.send_message_callback = send_message_callback
@@ -45,6 +49,8 @@ class WebBotAdapter(BotAdapter):
         self.wants_any_video_frames_callback = wants_any_video_frames_callback
         self.add_encoded_mp4_chunk_callback = add_encoded_mp4_chunk_callback
         self.upsert_caption_callback = upsert_caption_callback
+        self.start_recording_screen_callback = start_recording_screen_callback
+        self.stop_recording_screen_callback = stop_recording_screen_callback
         self.recording_view = recording_view
 
         self.meeting_url = meeting_url
@@ -73,6 +79,12 @@ class WebBotAdapter(BotAdapter):
         self.video_frame_ticker = 0
 
         self.automatic_leave_configuration = automatic_leave_configuration
+
+        self.should_create_debug_recording = should_create_debug_recording
+        self.debug_screen_recorder = None
+
+        self.silence_detection_activated = False
+        self.joined_at = None
 
     def process_encoded_mp4_chunk(self, message):
         self.last_media_message_processed_time = time.time()
@@ -239,6 +251,9 @@ class WebBotAdapter(BotAdapter):
     def send_request_to_join_denied_message(self):
         self.send_message_callback({"message": self.Messages.REQUEST_TO_JOIN_DENIED})
 
+    def send_meeting_not_found_message(self):
+        self.send_message_callback({"message": self.Messages.MEETING_NOT_FOUND})
+
     def send_debug_screenshot_message(self, step, exception, inner_exception):
         current_time = datetime.datetime.now()
         timestamp = current_time.strftime("%Y%m%d_%H%M%S")
@@ -249,11 +264,22 @@ class WebBotAdapter(BotAdapter):
             logger.info(f"Error saving screenshot: {e}")
             screenshot_path = None
 
+        mhtml_file_path = f"/tmp/page_snapshot_{timestamp}.mhtml"
+        try:
+            result = self.driver.execute_cdp_cmd("Page.captureSnapshot", {})
+            mhtml_bytes = result["data"]  # Extract the data from the response dictionary
+            with open(mhtml_file_path, "w", encoding="utf-8") as f:
+                f.write(mhtml_bytes)
+        except Exception as e:
+            logger.info(f"Error saving mhtml: {e}")
+            mhtml_file_path = None
+
         self.send_message_callback(
             {
                 "message": self.Messages.UI_ELEMENT_NOT_FOUND,
                 "step": step,
                 "current_time": current_time,
+                "mhtml_file_path": mhtml_file_path,
                 "screenshot_path": screenshot_path,
                 "exception_type": exception.__class__.__name__ if exception else "exception_not_available",
                 "exception_message": exception.__str__() if exception else "exception_message_not_available",
@@ -265,9 +291,12 @@ class WebBotAdapter(BotAdapter):
     def init_driver(self):
         options = webdriver.ChromeOptions()
 
+        options.add_argument("--autoplay-policy=no-user-gesture-required")
+        options.add_argument("--use-fake-device-for-media-stream")
         options.add_argument("--use-fake-ui-for-media-stream")
-        options.add_argument("--start-maximized")
+        options.add_argument(f"--window-size={self.video_frame_size[0]},{self.video_frame_size[1]}")
         options.add_argument("--no-sandbox")
+        options.add_argument("--start-fullscreen")
         # options.add_argument('--headless=new')
         options.add_argument("--disable-gpu")
         options.add_argument("--disable-extensions")
@@ -275,6 +304,7 @@ class WebBotAdapter(BotAdapter):
         options.add_argument("--disable-setuid-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
 
         if self.driver:
             # Simulate closing browser window
@@ -292,7 +322,7 @@ class WebBotAdapter(BotAdapter):
         self.driver = webdriver.Chrome(options=options)
         logger.info(f"web driver server initialized at port {self.driver.service.port}")
 
-        initial_data_code = f"window.initialData = {{websocketPort: {self.websocket_port}, recordingView: '{self.recording_view}'}}"
+        initial_data_code = f"window.initialData = {{websocketPort: {self.websocket_port}, addClickRipple: {'true' if self.should_create_debug_recording else 'false'}, recordingView: '{self.recording_view}'}}"
 
         # Define the CDN libraries needed
         CDN_LIBRARIES = ["https://cdnjs.cloudflare.com/ajax/libs/protobufjs/7.4.0/protobuf.min.js", "https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"]
@@ -323,10 +353,16 @@ class WebBotAdapter(BotAdapter):
         self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": combined_code})
 
     def init(self):
+        self.display_var_for_debug_recording = os.environ.get("DISPLAY")
         if os.environ.get("DISPLAY") is None:
             # Create virtual display only if no real display is available
-            display = Display(visible=0, size=(1920, 1080))
-            display.start()
+            self.display = Display(visible=0, size=(1930, 1090))
+            self.display.start()
+            self.display_var_for_debug_recording = self.display.new_display_var
+
+        if self.should_create_debug_recording:
+            self.debug_screen_recorder = DebugScreenRecorder(self.display_var_for_debug_recording, self.video_frame_size, BotAdapter.DEBUG_RECORDING_FILE_PATH)
+            self.debug_screen_recorder.start()
 
         # Start websocket server in a separate thread
         websocket_thread = threading.Thread(target=self.run_websocket_server, daemon=True)
@@ -342,8 +378,10 @@ class WebBotAdapter(BotAdapter):
     def repeatedly_attempt_to_join_meeting(self):
         logger.info(f"Trying to join meeting at {self.meeting_url}")
 
+        # Expected exceptions are ones that we expect to happen and are not a big deal, so we only increment num_retries once every three expected exceptions
+        num_expected_exceptions = 0
         num_retries = 0
-        max_retries = 2
+        max_retries = 3
         while num_retries <= max_retries:
             try:
                 self.init_driver()
@@ -354,6 +392,24 @@ class WebBotAdapter(BotAdapter):
             except UiRequestToJoinDeniedException:
                 self.send_request_to_join_denied_message()
                 return
+
+            except UiMeetingNotFoundException:
+                self.send_meeting_not_found_message()
+                return
+
+            except UiRetryableExpectedException as e:
+                if num_retries >= max_retries:
+                    logger.info(f"Failed to join meeting and the {e.__class__.__name__} exception is retryable but the number of retries exceeded the limit and there were {num_expected_exceptions} expected exceptions, so returning")
+                    self.send_debug_screenshot_message(step=e.step, exception=e, inner_exception=e.inner_exception)
+                    return
+
+                num_expected_exceptions += 1
+                if num_expected_exceptions % 3 == 0:
+                    num_retries += 1
+                    logger.info(f"Failed to join meeting and the {e.__class__.__name__} exception is expected and {num_expected_exceptions} expected exceptions have occurred, so incrementing num_retries. This usually indicates that the meeting has not started yet, so we will wait for the configured amount of time which is {self.automatic_leave_configuration.wait_for_host_to_start_meeting_timeout_seconds} seconds before retrying")
+                    sleep(self.automatic_leave_configuration.wait_for_host_to_start_meeting_timeout_seconds)
+                else:
+                    logger.info(f"Failed to join meeting and the {e.__class__.__name__} exception is expected so not incrementing num_retries, but {num_expected_exceptions} expected exceptions have occurred")
 
             except UiRetryableException as e:
                 if num_retries >= max_retries:
@@ -367,7 +423,8 @@ class WebBotAdapter(BotAdapter):
 
                 logger.info(f"Failed to join meeting and the {e.__class__.__name__} exception is retryable so retrying")
 
-            num_retries += 1
+                num_retries += 1
+
             sleep(1)
 
         self.send_message_callback({"message": self.Messages.BOT_JOINED_MEETING})
@@ -376,6 +433,14 @@ class WebBotAdapter(BotAdapter):
         self.send_frames = True
         self.driver.execute_script("window.ws?.enableMediaSending();")
         self.first_buffer_timestamp_ms_offset = self.driver.execute_script("return performance.timeOrigin;")
+        self.joined_at = time.time()
+
+        if self.start_recording_screen_callback:
+            sleep(2)
+            if self.debug_screen_recorder:
+                self.debug_screen_recorder.stop()
+            self.start_recording_screen_callback(self.display_var_for_debug_recording)
+
         self.media_sending_enable_timestamp_ms = time.time() * 1000
 
     def leave(self):
@@ -396,6 +461,9 @@ class WebBotAdapter(BotAdapter):
             self.left_meeting = True
 
     def cleanup(self):
+        if self.stop_recording_screen_callback:
+            self.stop_recording_screen_callback()
+
         try:
             logger.info("disable media sending")
             self.driver.execute_script("window.ws?.disableMediaSending();")
@@ -425,6 +493,9 @@ class WebBotAdapter(BotAdapter):
         except Exception as e:
             logger.info(f"Error during cleanup: {e}")
 
+        if self.debug_screen_recorder:
+            self.debug_screen_recorder.stop()
+
         # Properly shutdown the websocket server
         if self.websocket_server:
             try:
@@ -433,9 +504,6 @@ class WebBotAdapter(BotAdapter):
                 logger.info(f"Error shutting down websocket server: {e}")
 
         self.cleaned_up = True
-
-    def get_first_buffer_timestamp_ms_offset(self):
-        return self.first_buffer_timestamp_ms_offset
 
     def check_auto_leave_conditions(self) -> None:
         if self.left_meeting:
@@ -449,14 +517,40 @@ class WebBotAdapter(BotAdapter):
                 self.send_message_callback({"message": self.Messages.ADAPTER_REQUESTED_BOT_LEAVE_MEETING, "leave_reason": BotAdapter.LEAVE_REASON.AUTO_LEAVE_ONLY_PARTICIPANT_IN_MEETING})
                 return
 
-        if self.last_audio_message_processed_time is not None:
+        if not self.silence_detection_activated and self.joined_at is not None and time.time() - self.joined_at > self.automatic_leave_configuration.silence_activate_after_seconds:
+            self.silence_detection_activated = True
+            self.last_audio_message_processed_time = time.time()
+            logger.info(f"Silence detection activated after {self.automatic_leave_configuration.silence_activate_after_seconds} seconds")
+
+        if self.last_audio_message_processed_time is not None and self.silence_detection_activated:
             if time.time() - self.last_audio_message_processed_time > self.automatic_leave_configuration.silence_threshold_seconds:
                 logger.info(f"Auto-leaving meeting because there was no audio for {self.automatic_leave_configuration.silence_threshold_seconds} seconds")
                 self.send_message_callback({"message": self.Messages.ADAPTER_REQUESTED_BOT_LEAVE_MEETING, "leave_reason": BotAdapter.LEAVE_REASON.AUTO_LEAVE_SILENCE})
                 return
 
+    def ready_to_show_bot_image(self):
+        self.send_message_callback({"message": self.Messages.READY_TO_SHOW_BOT_IMAGE})
+
     def send_raw_audio(self, bytes, sample_rate):
-        logger.info("send_raw_audio not supported in google meet bots")
+        logger.info("send_raw_audio not supported in web bots")
+
+    def get_first_buffer_timestamp_ms(self):
+        if self.media_sending_enable_timestamp_ms is None:
+            return None
+        # Doing a manual offset for now to correct for the screen recorder delay. This seems to work reliably.
+        return self.media_sending_enable_timestamp_ms
 
     def send_raw_image(self, image_bytes):
-        logger.info("send_raw_image not supported in google meet bots")
+        # If we have a memoryview, convert it to bytes
+        if isinstance(image_bytes, memoryview):
+            image_bytes = image_bytes.tobytes()
+
+        # Pass the raw bytes directly to JavaScript
+        # The JavaScript side can convert it to appropriate format
+        self.driver.execute_script(
+            """
+            const bytes = new Uint8Array(arguments[0]);
+            window.botOutputManager.displayImage(bytes);
+        """,
+            list(image_bytes),
+        )

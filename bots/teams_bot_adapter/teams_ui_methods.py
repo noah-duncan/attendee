@@ -53,6 +53,17 @@ class TeamsUIMethods:
             logger.info("Still waiting to be admitted to the meeting after waiting period expired. Raising UiRequestToJoinDeniedException")
             raise UiRequestToJoinDeniedException("Bot was not let in after waiting period expired", step)
 
+    def turn_off_media_inputs(self):
+        logger.info("Waiting for the microphone button...")
+        microphone_button = self.locate_element(step="turn_off_microphone_button", condition=EC.presence_of_element_located((By.CSS_SELECTOR, '[data-tid="toggle-mute"]')), wait_time_seconds=6)
+        logger.info("Clicking the microphone button...")
+        self.click_element(microphone_button, "turn_off_microphone_button")
+
+        logger.info("Waiting for the camera button...")
+        camera_button = self.locate_element(step="turn_off_camera_button", condition=EC.presence_of_element_located((By.CSS_SELECTOR, '[data-tid="toggle-video"]')), wait_time_seconds=6)
+        logger.info("Clicking the camera button...")
+        self.click_element(camera_button, "turn_off_camera_button")
+
     def fill_out_name_input(self):
         num_attempts = 30
         logger.info("Waiting for the name input field...")
@@ -117,6 +128,8 @@ class TeamsUIMethods:
 
         self.fill_out_name_input()
 
+        self.turn_off_media_inputs()
+
         logger.info("Waiting for the Join now button...")
         join_button = self.locate_element(step="join_button", condition=EC.presence_of_element_located((By.CSS_SELECTOR, '[data-tid="prejoin-join-button"]')), wait_time_seconds=10)
         logger.info("Clicking the Join now button...")
@@ -133,6 +146,8 @@ class TeamsUIMethods:
 
         # Select speaker view
         self.select_speaker_view()
+
+        self.ready_to_show_bot_image()
 
     def click_leave_button(self):
         logger.info("Waiting for the leave button")

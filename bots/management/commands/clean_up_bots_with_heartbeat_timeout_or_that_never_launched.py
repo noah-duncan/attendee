@@ -12,21 +12,21 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Terminates bots that have not sent a heartbeat in the last ten minutes"
+    help = "Terminates bots that have not sent a heartbeat in the last ten minutes or that never launched"
 
     def __init__(self):
         super().__init__()
         self.namespace = "attendee"
 
-    def terminate_bot(self, bot):
+    def terminate_bot(self, bot, event_sub_type):
         try:
             BotEventManager.create_event(
                 bot=bot,
                 event_type=BotEventTypes.FATAL_ERROR,
-                event_sub_type=BotEventSubTypes.FATAL_ERROR_HEARTBEAT_TIMEOUT,
+                event_sub_type=event_sub_type,
             )
         except Exception as e:
-            logger.error(f"Failed to create fatal error heartbeat timeout event for bot {bot.id}: {str(e)}")
+            logger.error(f"Failed to create fatal error {event_sub_type} event for bot {bot.id}: {str(e)}")
 
         # There isn't really a safe way to terminate the bot if it's running as a celery task
         if not os.getenv("LAUNCH_BOT_METHOD") == "kubernetes":
@@ -55,6 +55,10 @@ class Command(BaseCommand):
                 logger.warning(f"Error deleting pod {pod_name}: {str(pod_error)}")
 
     def handle(self, *args, **options):
+        self.terminate_bots_with_heartbeat_timeout()
+        self.terminate_bots_that_never_launched()
+
+    def terminate_bots_with_heartbeat_timeout(self):
         logger.info("Terminating bots with heartbeat timeout...")
 
         try:
@@ -71,7 +75,7 @@ class Command(BaseCommand):
             for bot in problem_bots:
                 try:
                     logger.info(f"Terminating bot {bot.object_id} due to heartbeat timeout")
-                    self.terminate_bot(bot)
+                    self.terminate_bot(bot, BotEventSubTypes.FATAL_ERROR_HEARTBEAT_TIMEOUT)
 
                 except Exception as e:
                     logger.error(f"Failed to terminate bot {bot.object_id}: {str(e)}")
@@ -80,3 +84,33 @@ class Command(BaseCommand):
 
         except client.ApiException as e:
             logger.error(f"Failed to terminate bots with heartbeat timeout: {str(e)}")
+
+    def terminate_bots_that_never_launched(self):
+        logger.info("Terminating bots that never launched...")
+
+        try:
+            # Calculate timestamps for 7 days ago and 1 hour ago
+            seven_days_ago = timezone.now() - timezone.timedelta(days=7)
+            one_hour_ago = timezone.now() - timezone.timedelta(hours=1)
+
+            # Find non-terminal bots where:
+            # - created between 7 days and 1 hour ago
+            # - first heartbeat is null (never launched)
+            never_launched_q_filter = models.Q(created_at__gt=seven_days_ago, created_at__lt=one_hour_ago, first_heartbeat_timestamp__isnull=True)
+            problem_bots = Bot.objects.filter(~BotEventManager.get_terminal_states_q_filter() & never_launched_q_filter)
+
+            logger.info(f"Found {problem_bots.count()} bots that never launched")
+
+            # Create fatal error events for each bot
+            for bot in problem_bots:
+                try:
+                    logger.info(f"Terminating bot {bot.object_id} that never launched")
+                    self.terminate_bot(bot, BotEventSubTypes.FATAL_ERROR_BOT_NOT_LAUNCHED)
+
+                except Exception as e:
+                    logger.error(f"Failed to terminate bot {bot.object_id}: {str(e)}")
+
+            logger.info("Finished terminating bots that never launched")
+
+        except Exception as e:
+            logger.error(f"Failed to terminate bots that never launched: {str(e)}")

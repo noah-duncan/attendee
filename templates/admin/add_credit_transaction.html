@@ -1,0 +1,39 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static admin_modify %}
+
+{% block extrahead %}{{ block.super }}
+<script type="text/javascript" src="{% url 'admin:jsi18n' %}"></script>
+{{ form.media }}
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <form method="post">
+        {% csrf_token %}
+        <fieldset class="module aligned">
+            <h2>Add Credit Transaction for {{ original.name }}</h2>
+            <div class="form-row">
+                <div class="help">
+                    <p>Current balance: {{ original.credits }} credits</p>
+                    <p>Enter a positive value to add credits, or a negative value to subtract credits.</p>
+                </div>
+            </div>
+            {% for field in form %}
+                <div class="form-row">
+                    <div class="field-box">
+                        {{ field.errors }}
+                        {{ field.label_tag }} {{ field }}
+                        {% if field.help_text %}
+                            <div class="help">{{ field.help_text|safe }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        </fieldset>
+        <div class="submit-row">
+            <input type="submit" value="Save" class="default" name="_save">
+            <a href="{% url 'admin:accounts_organization_change' original.pk %}" class="closelink">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %} 

@@ -1,3 +1,6 @@
+import base64
+import json
+
 import jsonschema
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -11,13 +14,73 @@ from .models import (
     BotEventSubTypes,
     BotEventTypes,
     BotStates,
+    MediaBlob,
     Recording,
     RecordingFormats,
     RecordingStates,
     RecordingTranscriptionStates,
     RecordingViews,
 )
-from .utils import meeting_type_from_url
+from .utils import is_valid_png, meeting_type_from_url
+
+# Define the schema once
+BOT_IMAGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "type": {"type": "string", "enum": ["image/png"]},
+        "data": {
+            "type": "string",
+        },
+    },
+    "required": ["type", "data"],
+    "additionalProperties": False,
+}
+
+
+@extend_schema_field(BOT_IMAGE_SCHEMA)
+class ImageJSONField(serializers.JSONField):
+    """Field for images with validation"""
+
+    pass
+
+
+@extend_schema_serializer(
+    examples=[
+        OpenApiExample(
+            "Valid image",
+            value={
+                "type": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+            },
+            description="An image of a red pixel encoded in base64 in PNG format",
+        )
+    ]
+)
+class BotImageSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=[ct[0] for ct in MediaBlob.VALID_IMAGE_CONTENT_TYPES], help_text="Image content type. Currently only PNG is supported.")  # image/png
+    data = serializers.CharField(help_text="Base64 encoded image data. Simple example of a red pixel encoded in PNG format: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")  # base64 encoded image data
+
+    def validate_type(self, value):
+        """Validate the content type"""
+        if value not in [ct[0] for ct in MediaBlob.VALID_IMAGE_CONTENT_TYPES]:
+            raise serializers.ValidationError("Invalid image content type")
+        return value
+
+    def validate(self, data):
+        """Validate the entire image data"""
+        try:
+            # Decode base64 data
+            image_data = base64.b64decode(data.get("data", ""))
+        except Exception:
+            raise serializers.ValidationError("Invalid base64 encoded data")
+
+        # Validate that it's a proper PNG image
+        if not is_valid_png(image_data):
+            raise serializers.ValidationError("Data is not a valid PNG image. This site can generate base64 encoded PNG images to test with: https://png-pixel.com")
+
+        # Add the decoded data to the validated data
+        data["decoded_data"] = image_data
+        return data
 
 
 @extend_schema_field(
@@ -80,17 +143,38 @@ class RTMPSettingsJSONField(serializers.JSONField):
         "properties": {
             "format": {
                 "type": "string",
-                "description": "The format of the recording to save. The supported formats are 'webm' and 'mp4'.",
+                "description": "The format of the recording to save. The supported formats are 'mp4'.",
             },
             "view": {
                 "type": "string",
                 "description": "The view to use for the recording. The supported views are 'speaker_view' and 'gallery_view'.",
             },
         },
-        "required": ["format"],
+        "required": [],
     }
 )
 class RecordingSettingsJSONField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "properties": {
+            "create_debug_recording": {
+                "type": "boolean",
+                "description": "Whether to generate a recording of the attempt to join the meeting. Used for debugging.",
+            },
+        },
+        "required": [],
+    }
+)
+class DebugSettingsJSONField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field({"type": "object", "description": "JSON object containing metadata to associate with the bot", "example": {"client_id": "abc123", "user": "john_doe", "purpose": "Weekly team meeting"}})
+class MetadataJSONField(serializers.JSONField):
     pass
 
 
@@ -109,6 +193,8 @@ class RecordingSettingsJSONField(serializers.JSONField):
 class CreateBotSerializer(serializers.Serializer):
     meeting_url = serializers.CharField(help_text="The URL of the meeting to join, e.g. https://zoom.us/j/123?pwd=456")
     bot_name = serializers.CharField(help_text="The name of the bot to create, e.g. 'My Bot'")
+    bot_image = BotImageSerializer(help_text="The image for the bot", required=False, default=None)
+    metadata = MetadataJSONField(help_text="JSON object containing metadata to associate with the bot", required=False, default=None)
 
     transcription_settings = TranscriptionSettingsJSONField(
         help_text="The transcription settings for the bot, e.g. {'deepgram': {'language': 'en'}}",
@@ -196,9 +282,9 @@ class CreateBotSerializer(serializers.Serializer):
         return value
 
     recording_settings = RecordingSettingsJSONField(
-        help_text="The settings for the bot's recording. Either {'format': 'webm'} or {'format': 'mp4'}, with optional 'view': 'speaker_view' or 'gallery_view'.",
+        help_text="The settings for the bot's recording. Currently the only setting is 'view' which can be 'speaker_view' or 'gallery_view'.",
         required=False,
-        default={"format": RecordingFormats.WEBM, "view": RecordingViews.SPEAKER_VIEW},
+        default={"format": RecordingFormats.MP4, "view": RecordingViews.SPEAKER_VIEW},
     )
 
     RECORDING_SETTINGS_SCHEMA = {
@@ -221,8 +307,8 @@ class CreateBotSerializer(serializers.Serializer):
 
         # Validate format if provided
         format = value.get("format")
-        if format not in [RecordingFormats.MP4, RecordingFormats.WEBM, None]:
-            raise serializers.ValidationError({"format": "Format must be mp4 or webm"})
+        if format not in [RecordingFormats.MP4, None]:
+            raise serializers.ValidationError({"format": "Format must be mp4"})
 
         # Validate view if provided
         view = value.get("view")
@@ -231,9 +317,64 @@ class CreateBotSerializer(serializers.Serializer):
 
         return value
 
+    debug_settings = DebugSettingsJSONField(
+        help_text="The debug settings for the bot, e.g. {'create_debug_recording': True}.",
+        required=False,
+        default={"create_debug_recording": False},
+    )
+
+    DEBUG_SETTINGS_SCHEMA = {
+        "type": "object",
+        "properties": {
+            "create_debug_recording": {"type": "boolean"},
+        },
+        "required": [],
+        "additionalProperties": False,
+    }
+
+    def validate_debug_settings(self, value):
+        if value is None:
+            return value
+
+        try:
+            jsonschema.validate(instance=value, schema=self.DEBUG_SETTINGS_SCHEMA)
+        except jsonschema.exceptions.ValidationError as e:
+            raise serializers.ValidationError(e.message)
+
+        return value
+
+    def validate_metadata(self, value):
+        if value is None:
+            return value
+
+        # Check if it's a dict
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Metadata must be an object not an array or other type")
+
+        # Make sure there is at least one key
+        if not value:
+            raise serializers.ValidationError("Metadata must have at least one key")
+
+        # Check if all values are strings
+        for key, val in value.items():
+            if not isinstance(val, str):
+                raise serializers.ValidationError(f"Value for key '{key}' must be a string")
+
+        # Check if all keys are strings
+        for key in value.keys():
+            if not isinstance(key, str):
+                raise serializers.ValidationError("All keys in metadata must be strings")
+
+        # Make sure the total length of the stringified metadata is less than 1000 characters
+        if len(json.dumps(value)) > 1000:
+            raise serializers.ValidationError("Metadata must be less than 1000 characters")
+
+        return value
+
 
 class BotSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source="object_id")
+    metadata = serializers.SerializerMethodField()
     state = serializers.SerializerMethodField()
     events = serializers.SerializerMethodField()
     transcription_state = serializers.SerializerMethodField()
@@ -247,6 +388,10 @@ class BotSerializer(serializers.ModelSerializer):
     )
     def get_state(self, obj):
         return BotStates.state_to_api_code(obj.state)
+
+    @extend_schema_field({"type": "object", "description": "Metadata associated with the bot"})
+    def get_metadata(self, obj):
+        return obj.metadata
 
     @extend_schema_field(
         {
@@ -303,6 +448,7 @@ class BotSerializer(serializers.ModelSerializer):
         model = Bot
         fields = [
             "id",
+            "metadata",
             "meeting_url",
             "state",
             "events",
