@@ -885,6 +885,41 @@ class UserManager {
     }
 }
 
+class ReceiverManager {
+    constructor() {
+        this.receiverMap = new Map();
+    }
+
+    updateContributingSources(receiver, result) {
+        this.receiverMap.set(receiver, result);
+    }
+
+    getContributingSources(receiver) {
+        return this.receiverMap.get(receiver) || [];
+    }
+}
+
+class RTCRtpReceiverInterceptor {
+    constructor(onGetContributingSources) {
+        // Store the original getContributingSources method
+        const originalGetContributingSources = RTCRtpReceiver.prototype.getContributingSources;
+        
+        // Replace with our intercepted version
+        RTCRtpReceiver.prototype.getContributingSources = function() {
+            // Call the original method with proper this binding and arguments
+            const result = originalGetContributingSources.apply(this, arguments);
+            
+            // Call the callback with the receiver, arguments, and the result
+            if (onGetContributingSources) {
+                onGetContributingSources(this, result, ...arguments);
+            }
+            
+            // Return the original result
+            return result;
+        };
+    }
+}
+
 // Websocket client
 class WebSocketClient {
   // Message types
@@ -892,7 +927,8 @@ class WebSocketClient {
       JSON: 1,
       VIDEO: 2,
       AUDIO: 3,
-      ENCODED_MP4_CHUNK: 4
+      ENCODED_MP4_CHUNK: 4,
+      PER_PARTICIPANT_AUDIO: 5
   };
 
   constructor() {
@@ -1081,7 +1117,45 @@ class WebSocketClient {
     }
   }
 
-  sendAudio(timestamp, streamId, audioData) {
+  sendPerParticipantAudio(participantId, audioData) {
+    if (this.ws.readyState !== WebSocket.OPEN) {
+      console.error('WebSocket is not connected for per participant audio send', this.ws.readyState);
+      return;
+    }
+
+    if (!this.mediaSendingEnabled) {
+      return;
+    }
+
+    try {
+        // Convert participantId to UTF-8 bytes
+        const participantIdBytes = new TextEncoder().encode(participantId);
+        
+        // Create final message: type (4 bytes) + participantId length (1 byte) + 
+        // participantId bytes + audio data
+        const message = new Uint8Array(4 + 1 + participantIdBytes.length + audioData.buffer.byteLength);
+        const dataView = new DataView(message.buffer);
+        
+        // Set message type (5 for PER_PARTICIPANT_AUDIO)
+        dataView.setInt32(0, WebSocketClient.MESSAGE_TYPES.PER_PARTICIPANT_AUDIO, true);
+        
+        // Set participantId length as uint8 (1 byte)
+        dataView.setUint8(4, participantIdBytes.length);
+        
+        // Copy participantId bytes
+        message.set(participantIdBytes, 5);
+        
+        // Copy audio data after type, length and participantId
+        message.set(new Uint8Array(audioData.buffer), 5 + participantIdBytes.length);
+        
+        // Send the binary message
+        this.ws.send(message.buffer);
+    } catch (error) {
+        console.error('Error sending WebSocket audio message:', error);
+    }
+  }
+
+  sendMixedAudio(timestamp, streamId, audioData) {
       if (this.ws.readyState !== WebSocket.OPEN) {
           console.error('WebSocket is not connected for audio send', this.ws.readyState);
           return;
@@ -1415,10 +1489,18 @@ const userManager = new UserManager(ws);
 const captionManager = new CaptionManager(ws);
 const videoTrackManager = new VideoTrackManager(ws);
 const styleManager = new StyleManager();
+const receiverManager = new ReceiverManager();
+let rtpReceiverInterceptor = null;
+if (window.initialData.sendPerParticipantAudio) {
+    rtpReceiverInterceptor = new RTCRtpReceiverInterceptor((receiver, result, ...args) => {
+        receiverManager.updateContributingSources(receiver, result);
+    });
+}
 
 window.videoTrackManager = videoTrackManager;
 window.userManager = userManager;
 window.styleManager = styleManager;
+window.receiverManager = receiverManager;
 // Create decoders for all message types
 const messageDecoders = {};
 messageTypes.forEach(type => {
@@ -1632,6 +1714,8 @@ const handleAudioTrack = async (event) => {
 
     const firstStreamId = event.streams[0]?.id;
 
+    const receiver = event.receiver;
+
     // Transform stream to intercept frames
     const transformStream = new TransformStream({
         async transform(frame, controller) {
@@ -1698,15 +1782,23 @@ const handleAudioTrack = async (event) => {
                 }
 
                 // If the audioData buffer is all zeros, then we don't want to send it
-                // Removing this since we implemented 3 audio sources in gstreamer pipeline
-                // if (audioData.every(value => value === 0)) {
-                //    return;
-                // }
+                if (audioData.every(value => value === 0)) {
+                    return;
+                }
+
+                const contributingSources = receiverManager.getContributingSources(receiver);
+                const usersForContributingSources = contributingSources.map(source => userManager.getUserByStreamId(source.source.toString())).filter(x => x);
+                //console.log('contributingSources', contributingSources);
+                //console.log('deviceOutputMap', userManager.deviceOutputMap);
+                //console.log('usersForContributingSources', usersForContributingSources);
 
                 // Send audio data through websocket
-                const currentTimeMicros = BigInt(Math.floor(performance.now() * 1000));
-                ws.sendAudio(currentTimeMicros, firstStreamId, audioData);
-
+                if (usersForContributingSources.length === 1) {
+                    const firstUserId = usersForContributingSources[0]?.deviceId;
+                    if (firstUserId) {
+                        ws.sendPerParticipantAudio(firstUserId, audioData);
+                    }
+                }
                 // Pass through the original frame
                 controller.enqueue(frame);
             } catch (error) {
@@ -1767,6 +1859,9 @@ new RTCInterceptor({
             // but we don't need to do anything with the video tracks
             if (event.track.kind === 'audio') {
                 window.styleManager.addAudioTrack(event.track);
+                if (window.initialData.sendPerParticipantAudio) {
+                    handleAudioTrack(event);
+                }
             }
             if (event.track.kind === 'video') {
                 window.styleManager.addVideoTrack(event);
@@ -1840,7 +1935,7 @@ new RTCInterceptor({
         });
       }
 
-       if (dataChannel.label === 'captions') {
+       if (dataChannel.label === 'captions' && window.initialData.collectCaptions) {
             dataChannel.addEventListener("message", (captionEvent) => {
                 handleCaptionEvent(captionEvent);
             });

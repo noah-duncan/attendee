@@ -30,7 +30,6 @@ from .models import (
     MediaBlob,
     Recording,
     RecordingTypes,
-    TranscriptionProviders,
     TranscriptionTypes,
     Utterance,
 )
@@ -43,6 +42,7 @@ from .serializers import (
     TranscriptUtteranceSerializer,
 )
 from .tasks import run_bot
+from .utils import transcription_provider_from_meeting_url_and_transcription_settings
 
 TokenHeaderParameter = [
     OpenApiParameter(
@@ -230,7 +230,7 @@ class BotCreateView(APIView):
                 bot=bot,
                 recording_type=RecordingTypes.AUDIO_AND_VIDEO,
                 transcription_type=TranscriptionTypes.NON_REALTIME,
-                transcription_provider=TranscriptionProviders.DEEPGRAM,
+                transcription_provider=transcription_provider_from_meeting_url_and_transcription_settings(meeting_url, transcription_settings),
                 is_default_recording=True,
             )
 
@@ -333,7 +333,6 @@ class OutputAudioView(APIView):
                     },
                     "data": {
                         "type": "string",
-                        "format": "binary",
                         "description": "Base64 encoded audio data",
                     },
                 },

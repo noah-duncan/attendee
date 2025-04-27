@@ -1,5 +1,9 @@
 {
-  "subdomain": "attendee",
+  "siteMeta": {
+    "title": "Attendee Documentation",
+    "description": "Documentation for Attendee - the universal meeting bot API."
+  },
+  "subdomain": "docs",
   "customDomain": "docs.attendee.dev",
   "guides": [
     {

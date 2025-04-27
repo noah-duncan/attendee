@@ -33,6 +33,7 @@ class WebBotAdapter(BotAdapter):
         meeting_url,
         add_video_frame_callback,
         wants_any_video_frames_callback,
+        add_audio_chunk_callback,
         add_mixed_audio_chunk_callback,
         add_encoded_mp4_chunk_callback,
         upsert_caption_callback,
@@ -44,6 +45,7 @@ class WebBotAdapter(BotAdapter):
     ):
         self.display_name = display_name
         self.send_message_callback = send_message_callback
+        self.add_audio_chunk_callback = add_audio_chunk_callback
         self.add_mixed_audio_chunk_callback = add_mixed_audio_chunk_callback
         self.add_video_frame_callback = add_video_frame_callback
         self.wants_any_video_frames_callback = wants_any_video_frames_callback
@@ -136,7 +138,8 @@ class WebBotAdapter(BotAdapter):
             else:
                 logger.info(f"video data length does not agree with width and height {len(video_data)} {width} {height}")
 
-    def process_audio_frame(self, message):
+    # Currently, this is not used.
+    def process_mixed_audio_frame(self, message):
         self.last_media_message_processed_time = time.time()
         if len(message) > 12:
             # Bytes 4-12 contain the timestamp
@@ -154,6 +157,21 @@ class WebBotAdapter(BotAdapter):
 
             if self.wants_any_video_frames_callback() and self.send_frames:
                 self.add_mixed_audio_chunk_callback(audio_data.tobytes(), timestamp * 1000, stream_id % 3)
+
+    def process_per_participant_audio_frame(self, message):
+        self.last_media_message_processed_time = time.time()
+        if len(message) > 12:
+            # Byte 5 contains the participant ID length
+            participant_id_length = int.from_bytes(message[4:5], byteorder="little")
+            participant_id = message[5 : 5 + participant_id_length].decode("utf-8")
+
+            # Convert the float32 audio data to numpy array
+            audio_data = np.frombuffer(message[(5 + participant_id_length) :], dtype=np.float32)
+
+            # Convert float32 to PCM 16-bit by multiplying by 32768.0
+            audio_data = (audio_data * 32768.0).astype(np.int16)
+
+            self.add_audio_chunk_callback(participant_id, datetime.datetime.utcnow(), audio_data.tobytes())
 
     def handle_websocket(self, websocket):
         audio_format = None
@@ -211,13 +229,16 @@ class WebBotAdapter(BotAdapter):
                 elif message_type == 2:  # VIDEO
                     self.process_video_frame(message)
                 elif message_type == 3:  # AUDIO
-                    self.process_audio_frame(message)
+                    self.process_mixed_audio_frame(message)
                 elif message_type == 4:  # ENCODED_MP4_CHUNK
                     self.process_encoded_mp4_chunk(message)
+                elif message_type == 5:  # PER_PARTICIPANT_AUDIO
+                    self.process_per_participant_audio_frame(message)
 
                 self.last_websocket_message_processed_time = time.time()
         except Exception as e:
             logger.info(f"Websocket error: {e}")
+            raise e
 
     def run_websocket_server(self):
         loop = asyncio.new_event_loop()
@@ -322,7 +343,7 @@ class WebBotAdapter(BotAdapter):
         self.driver = webdriver.Chrome(options=options)
         logger.info(f"web driver server initialized at port {self.driver.service.port}")
 
-        initial_data_code = f"window.initialData = {{websocketPort: {self.websocket_port}, addClickRipple: {'true' if self.should_create_debug_recording else 'false'}, recordingView: '{self.recording_view}'}}"
+        initial_data_code = f"window.initialData = {{websocketPort: {self.websocket_port}, addClickRipple: {'true' if self.should_create_debug_recording else 'false'}, recordingView: '{self.recording_view}', sendPerParticipantAudio: {'true' if self.add_audio_chunk_callback else 'false'}, collectCaptions: {'false' if self.add_audio_chunk_callback else 'true'}}}"
 
         # Define the CDN libraries needed
         CDN_LIBRARIES = ["https://cdnjs.cloudflare.com/ajax/libs/protobufjs/7.4.0/protobuf.min.js", "https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"]

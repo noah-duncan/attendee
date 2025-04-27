@@ -180,6 +180,18 @@ class Bot(models.Model):
         centicredits_active = hours_active * 100
         return math.ceil(centicredits_active)
 
+    def openai_transcription_prompt(self):
+        return self.settings.get("transcription_settings", {}).get("openai", {}).get("prompt", None)
+
+    def openai_transcription_model(self):
+        return self.settings.get("transcription_settings", {}).get("openai", {}).get("model", "gpt-4o-transcribe")
+
+    def gladia_code_switching_languages(self):
+        return self.settings.get("transcription_settings", {}).get("gladia", {}).get("code_switching_languages", None)
+
+    def gladia_enable_code_switching(self):
+        return self.settings.get("transcription_settings", {}).get("gladia", {}).get("enable_code_switching", False)
+
     def deepgram_language(self):
         return self.settings.get("transcription_settings", {}).get("deepgram", {}).get("language", None)
 
@@ -768,6 +780,9 @@ class TranscriptionTypes(models.IntegerChoices):
 
 class TranscriptionProviders(models.IntegerChoices):
     DEEPGRAM = 1, "Deepgram"
+    CLOSED_CAPTION_FROM_PLATFORM = 2, "Closed Caption From Platform"
+    GLADIA = 3, "Gladia"
+    OPENAI = 4, "OpenAI"
 
 
 from storages.backends.s3boto3 import S3Boto3Storage
@@ -957,6 +972,8 @@ class Credentials(models.Model):
         DEEPGRAM = 1, "Deepgram"
         ZOOM_OAUTH = 2, "Zoom OAuth"
         GOOGLE_TTS = 3, "Google Text To Speech"
+        GLADIA = 4, "Gladia"
+        OPENAI = 5, "OpenAI"
 
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="credentials")
     credential_type = models.IntegerField(choices=CredentialTypes.choices, null=False)
