@@ -1,5 +1,3 @@
-                                                                                                                          # Bots Configuration Options
-
 ## Bots Configuration Options
 Bots can be configured with:
 
