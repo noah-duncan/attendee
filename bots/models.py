@@ -263,6 +263,11 @@ class Bot(models.Model):
     def last_bot_event(self):
         return self.bot_events.order_by("-created_at").first()
 
+    def automatic_leave_configuration(self):
+        from bots.bot_controller.automatic_leave_configuration import AutomaticLeaveConfiguration
+
+        return AutomaticLeaveConfiguration(silence_threshold_seconds=self.settings.get("silence_threshold_seconds", 600), only_participant_in_meeting_threshold_seconds=self.settings.get("only_participant_in_meeting_threshold_seconds", 60), wait_for_host_to_start_meeting_timeout_seconds=self.settings.get("wait_for_host_to_start_meeting_timeout_seconds", 600), silence_activate_after_seconds=self.settings.get("silence_activate_after_seconds", 1200))
+
     def save(self, *args, **kwargs):
         if not self.object_id:
             # Generate a random 16-character string

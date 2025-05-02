@@ -36,7 +36,6 @@ from bots.models import (
 from bots.utils import meeting_type_from_url
 
 from .audio_output_manager import AudioOutputManager
-from .automatic_leave_configuration import AutomaticLeaveConfiguration
 from .closed_caption_manager import ClosedCaptionManager
 from .file_uploader import FileUploader
 from .gstreamer_pipeline import GstreamerPipeline
@@ -288,7 +287,7 @@ class BotController:
         self.pubsub = None
         self.pubsub_channel = f"bot_{self.bot_in_db.id}"
 
-        self.automatic_leave_configuration = AutomaticLeaveConfiguration()
+        self.automatic_leave_configuration = self.bot_in_db.automatic_leave_configuration()
 
         if self.bot_in_db.rtmp_destination_url():
             self.pipeline_configuration = PipelineConfiguration.rtmp_streaming_bot()
