@@ -11,7 +11,7 @@ def home(request):
     project = Project.objects.filter(organization=request.user.organization).first()
     if not project:
         project = Project.objects.create(
-            name=f"{request.user.email}'s first project",
+            name=f"{request.user.email}'s project",
             organization=request.user.organization,
         )
     if project:

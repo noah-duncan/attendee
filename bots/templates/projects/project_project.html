@@ -1,0 +1,83 @@
+{% extends 'projects/sidebar.html' %} {% load bot_filters %} {% block content %}
+
+<!-- Delete Confirmation Modal -->
+<div class="modal" id="deleteProjectModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Confirm Project Deletion</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p>
+          Are you sure you want to delete the project "{{ project.name }}"? This action
+          cannot be undone and will delete all associated data.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          Cancel
+        </button>
+        <form action="{% url 'projects:project-delete' project.object_id %}" method="post" style="display: inline;">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-danger">Delete Project</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="container mt-4">
+  <h2>Project Settings</h2>
+  
+  <div class="card mt-4">
+    <div class="card-header">
+      <h5 class="mb-0">Project Details</h5>
+    </div>
+    <div class="card-body">
+      <form id="edit-project-form" 
+            hx-put="{% url 'projects:project-edit' project.object_id %}"
+            hx-trigger="submit"
+            hx-swap="none"
+            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+            hx-indicator="#form-indicator"
+            hx-on::after-request="window.location.reload()">
+        {% csrf_token %}
+        <div class="mb-3">
+          <label for="projectName" class="form-label">Project Name</label>
+          <input
+            type="text"
+            class="form-control"
+            id="projectName"
+            name="name"
+            value="{{ project.name }}"
+            maxlength="100"
+            required
+          />
+        </div>
+        <button type="submit" class="btn btn-primary">
+          Update Project
+          <span id="form-indicator" class="htmx-indicator spinner-border spinner-border-sm" role="status"></span>
+        </button>
+      </form>
+    </div>
+  </div>
+  
+  <div class="card mt-4">
+    <div class="card-header">
+      <h5 class="mb-0 text-danger">Danger Zone</h5>
+    </div>
+    <div class="card-body">
+      <p>Delete this project and all of its data. This action cannot be undone.</p>
+      <button
+        class="btn btn-danger"
+        data-bs-toggle="modal"
+        data-bs-target="#deleteProjectModal"
+      >
+        Delete Project
+      </button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

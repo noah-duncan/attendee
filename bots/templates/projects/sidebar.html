@@ -7,9 +7,41 @@
         <!-- Sidebar -->
         <div class="col-md-3 col-lg-2 sidebar py-3 position-fixed overflow-auto" style="height: 100vh;">
             <div class="d-flex flex-column h-100">
-                <h5 class="px-3 mb-3">                    
+                <h5 class="px-3 mb-3">
                     <img src="{% static 'images/logo_with_text.svg' %}" alt="Attendee Logo" class="img-fluid" style="max-width: 250px;">
                 </h5>
+
+                <!-- Project selector -->
+                <div class="project-selector px-3">
+                    <div class="dropdown w-100">
+                        <button class="btn project-dropdown-toggle w-100 d-flex align-items-center" type="button" id="currentProjectDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            <div class="d-flex align-items-center">
+                                <span id="currentProjectName" class="project-name-multiline" style="font-size: 0.9rem; max-width: 100%;">{{ project.name }}</span>
+                                <i class="bi bi-chevron-down ms-2"></i>
+                            </div>
+                        </button>
+                        <ul class="dropdown-menu w-100 shadow-sm" aria-labelledby="currentProjectDropdown">
+                            {% for proj in request.user.organization.projects.all|dictsort:"id" %}
+                                <li>
+                                    {% if proj.object_id == project.object_id %}
+                                    <a class="dropdown-item text-truncate active" style="font-size: 0.9rem; max-width: 100%; background-color: rgba(0, 0, 0, 0.09);">{{ proj.name }}</a>
+                                    {% else %}
+                                    <a class="dropdown-item text-truncate" onclick="selectProject('{{ proj.object_id }}')" style="font-size: 0.9rem; max-width: 100%;">{{ proj.name }}</a>
+                                    {% endif %}
+                                </li>
+                            {% endfor %}
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <a class="dropdown-item d-flex align-items-center" onclick="createNewProject()">
+                                    <i class="bi bi-plus-lg me-2"></i> Create New Project
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                <hr class="my-2">
+
                 <nav class="nav flex-column">
                     <a class="nav-link" 
                        hx-get="{% url 'projects:project-dashboard' project.object_id %}" 
@@ -55,6 +87,15 @@
                                hx-push-url="true"
                                onclick="setActiveLink(this)">
                                 <i class="bi bi-lock"></i> Credentials
+                            </a>
+                            <a class="nav-link ps-4" 
+                               hx-get="{% url 'projects:project-project' project.object_id %}" 
+                               hx-select="#content"
+                               hx-target="#content"
+                               hx-swap="outerHTML"
+                               hx-push-url="true"
+                               onclick="setActiveLink(this)">
+                                <i class="bi bi-people"></i> Project & Team
                             </a>
                             {% if project.organization.is_webhooks_enabled %}
                             <a class="nav-link ps-4"
@@ -163,6 +204,21 @@
             caret.style.transform = 'rotate(0deg)';
         }
     }
+
+    // Project selection handler (updated to use string replacement)
+    function selectProject(projectId) {
+        const currentProjectId = "{{ project.object_id }}";
+        const currentPath = window.location.pathname;
+        const newPath = currentPath.replace(currentProjectId, projectId);
+        window.location.href = newPath;
+    }
+
+    // Replace the createNewProject function
+    function createNewProject() {
+        // Show the project creation modal
+        const createProjectModal = new bootstrap.Modal(document.getElementById('createProjectModal'));
+        createProjectModal.show();
+    }
 </script>
 
 <!-- Add this style block -->
@@ -198,5 +254,53 @@
         align-items: center;
         transform: translateY(5px);
     }
+    
+    /* Project selector custom styling */
+    .project-dropdown-toggle {
+        background-color: transparent;
+        border: none;
+        padding: 0.5rem 0;
+        font-weight: 500;
+    }
+    .project-dropdown-toggle:focus {
+        box-shadow: none;
+    }
+    .project-selector .dropdown-menu {
+        border-radius: 0.5rem;
+    }
+    .project-selector .dropdown-item {
+        cursor: pointer;
+    }
+    
+    /* Fix for active dropdown item text color */
+    .project-selector .dropdown-item.active {
+        color: #212529; /* Dark text color to ensure visibility */
+    }
 </style>
-{% endblock %} 
+
+<!-- Create New Project Modal -->
+<div class="modal fade" id="createProjectModal" tabindex="-1" aria-labelledby="createProjectModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="createProjectModalLabel">Add new project</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="{% url 'projects:create-project' %}" method="post">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <label for="projectName" class="form-label">Project Name</label>
+                    <div class="mb-2">
+                        <input type="text" class="form-control" id="projectName" name="name" required maxlength="100">
+                    </div>
+                    <div class="form-text">Projects are often used to separate different environments (e.g. development,staging, production)</div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Project</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

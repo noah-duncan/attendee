@@ -42,7 +42,7 @@ def create_default_organization(sender, instance, **kwargs):
         default_org = Organization.objects.create(name=f"{instance.email}'s organization")
 
         # Create default project for the organization
-        Project.objects.create(name=f"{instance.email}'s first project", organization=default_org)
+        Project.objects.create(name=f"{instance.email}'s project", organization=default_org)
 
         # There's some weird stuff going on with username field
         # we don't need it for anything, so we'll just set it to a random uuid
