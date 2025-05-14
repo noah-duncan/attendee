@@ -254,7 +254,7 @@ class BotOutputManager {
 
         // Connect gain node to both destinations
         this.gainNode.connect(this.destination);
-        this.gainNode.connect(this.audioContextForBotOutput.destination);  // For local monitoring
+        //this.gainNode.connect(this.audioContextForBotOutput.destination);  // For local monitoring
 
         this.botOutputAudioTrack = this.destination.stream.getAudioTracks()[0];
         
