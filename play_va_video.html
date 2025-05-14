@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebRTC Stream Receiver</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+    video { width: 100%; max-height: 80vh; background: #eee; }
+    button { padding: 10px 16px; font-size: 16px; cursor: pointer; }
+    .status { margin: 10px 0; padding: 8px; border-radius: 4px; }
+    .connected { background-color: #d4edda; color: #155724; }
+    .connecting { background-color: #fff3cd; color: #856404; }
+    .error { background-color: #f8d7da; color: #721c24; }
+    #debug { height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <h1>WebRTC Stream Receiver</h1>
+  <div id="status" class="status connecting">Connecting to signaling server...</div>
+  <video id="remoteVideo" autoplay controls playsinline></video>
+  <h3>Debug Log</h3>
+  <div id="debug"></div>
+  
+  <script>
+    // Elements
+    const status = document.getElementById('status');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const debug = document.getElementById('debug');
+    
+    // WebRTC variables
+    let peerConnection;
+    let currentSenderId = null;
+    const clientId = 'receiver-' + Math.floor(Math.random() * 1000);
+    
+    function log(message) {
+      console.log(message);
+      const line = document.createElement('div');
+      line.textContent = new Date().toLocaleTimeString() + ': ' + message;
+      debug.appendChild(line);
+      debug.scrollTop = debug.scrollHeight;
+    }
+    
+    // Connect to signaling server
+    const ws = new WebSocket('ws://localhost:8765');
+    
+    ws.onopen = () => {
+      updateStatus('Connected to signaling server', 'connected');
+      
+      // Register with the signaling server
+      ws.send(JSON.stringify({
+        type: 'register',
+        clientId: clientId
+      }));
+      
+      // Initialize WebRTC
+      initWebRTC();
+      
+      log('Registered with signaling server as: ' + clientId);
+    };
+    
+    ws.onclose = () => {
+      updateStatus('Disconnected from signaling server', 'error');
+      log('WebSocket connection closed');
+    };
+    
+    ws.onerror = (error) => {
+      updateStatus('Error connecting to signaling server', 'error');
+      log('WebSocket error');
+    };
+    
+    ws.onmessage = async (event) => {
+      const data = JSON.parse(event.data);
+      log('Received message: ' + data.type);
+      
+      if (data.type === 'offer') {
+        currentSenderId = data.senderId;
+        updateStatus('Received offer from sender: ' + currentSenderId, 'connecting');
+        await handleOffer(data.offer);
+      } else if (data.type === 'ice-candidate') {
+        log('Received ICE candidate from: ' + data.senderId);
+        await handleIceCandidate(data.candidate);
+      }
+    };
+    
+    function initWebRTC() {
+      log('Initializing WebRTC connection');
+      
+      // Create new RTCPeerConnection
+      peerConnection = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+      
+      // Set up event handlers
+      peerConnection.ontrack = (event) => {
+        log('🎉 RECEIVED MEDIA TRACK: ' + event.track.kind);
+        updateStatus('Received media stream!', 'connected');
+        
+        if (remoteVideo.srcObject !== event.streams[0]) {
+          remoteVideo.srcObject = event.streams[0];
+          log('Set remote stream to video element');
+          
+          // Ensure video plays automatically
+          remoteVideo.play().catch(error => {
+            log('Error auto-playing video: ' + error.message);
+            updateStatus('Click to play video (autoplay blocked)', 'error');
+          });
+        }
+      };
+      
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate && currentSenderId) {
+          log('Sending ICE candidate to sender: ' + currentSenderId);
+          ws.send(JSON.stringify({
+            type: 'ice-candidate',
+            targetId: currentSenderId,
+            candidate: event.candidate
+          }));
+        }
+      };
+      
+      peerConnection.oniceconnectionstatechange = () => {
+        log('ICE connection state changed to: ' + peerConnection.iceConnectionState);
+        updateStatus(`ICE connection: ${peerConnection.iceConnectionState}`, 
+                     peerConnection.iceConnectionState === 'connected' ? 'connected' : 'connecting');
+      };
+      
+      peerConnection.onicegatheringstatechange = () => {
+        log('ICE gathering state: ' + peerConnection.iceGatheringState);
+      };
+      
+      peerConnection.onsignalingstatechange = () => {
+        log('Signaling state: ' + peerConnection.signalingState);
+      };
+      
+      peerConnection.onconnectionstatechange = () => {
+        log('Connection state: ' + peerConnection.connectionState);
+      };
+    }
+    
+    async function handleOffer(offer) {
+      try {
+        log('Setting remote description (offer)');
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+        
+        log('Creating answer');
+        const answer = await peerConnection.createAnswer();
+        
+        log('Setting local description (answer)');
+        await peerConnection.setLocalDescription(answer);
+        
+        log('Sending answer to sender: ' + currentSenderId);
+        ws.send(JSON.stringify({
+          type: 'answer',
+          targetId: currentSenderId,
+          answer: peerConnection.localDescription
+        }));
+        
+        updateStatus('Sent answer to sender', 'connecting');
+      } catch (error) {
+        log('ERROR handling offer: ' + error.message);
+        updateStatus('Error handling offer', 'error');
+      }
+    }
+    
+    async function handleIceCandidate(candidate) {
+      try {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+        log('Added ICE candidate successfully');
+      } catch (error) {
+        log('ERROR adding ICE candidate: ' + error.message);
+      }
+    }
+    
+    function updateStatus(message, type) {
+      status.textContent = message;
+      status.className = 'status ' + type;
+      log(message);
+    }
+    
+    // Add some initial browser info for debugging
+    log('Browser: ' + navigator.userAgent);
+    if (window.RTCPeerConnection) {
+      log('RTCPeerConnection is supported');
+    } else {
+      log('WARNING: RTCPeerConnection NOT supported!');
+    }
+  </script>
+</body>
+</html>

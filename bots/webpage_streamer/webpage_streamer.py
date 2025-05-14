@@ -15,7 +15,7 @@ class WebpageStreamer(BotAdapter):
     ):
         self.driver = None
         self.webpage_url = webpage_url
-        self.video_frame_size = (1280, 720)
+        self.video_frame_size = (1580, 1024)
 
     def init_driver(self):
         options = webdriver.ChromeOptions()
