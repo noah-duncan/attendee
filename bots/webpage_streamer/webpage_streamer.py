@@ -55,4 +55,4 @@ class WebpageStreamer(BotAdapter):
         # wait for the page to load
         self.driver.implicitly_wait(600)
 
-        time.sleep(60)
+        time.sleep(600)

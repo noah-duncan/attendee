@@ -23,60 +23,7 @@ async function captureScreenWithAudio() {
       window.__videoElement = videoElement;
 
       console.log('videoElement:', videoElement);
-      
-      // Set up recording of the stream
-      const mediaRecorder = new MediaRecorder(screenStream);
-      const recordedChunks = [];
-      
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          recordedChunks.push(event.data);
-        }
-      };
-      
-      mediaRecorder.onstop = () => {
-        // Create a blob from the recorded chunks
-        const blob = new Blob(recordedChunks, { type: 'video/webm' });
-        const url = URL.createObjectURL(blob);
-        
-        // Create download button
-        const downloadButton = document.createElement('button');
-        downloadButton.textContent = 'Download Recording';
-        downloadButton.style.position = 'fixed';
-        downloadButton.style.top = '20px';
-        downloadButton.style.right = '20px';
-        downloadButton.style.zIndex = '9999';
-        downloadButton.style.padding = '10px';
-        downloadButton.style.backgroundColor = '#4CAF50';
-        downloadButton.style.color = 'white';
-        downloadButton.style.border = 'none';
-        downloadButton.style.borderRadius = '5px';
-        downloadButton.style.cursor = 'pointer';
-        
-        downloadButton.onclick = () => {
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = 'screen-recording.webm';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-        };
-        
-        document.body.appendChild(downloadButton);
-      };
-      
-      // Start recording
-      mediaRecorder.start();
-      
-      // Stop recording after 5 seconds
-      setTimeout(() => {
-        mediaRecorder.stop();
-        
-        // Stop all tracks
-        screenStream.getTracks().forEach(track => track.stop());
-        console.log('Recording stopped after 5 seconds');
-      }, 10000);
-      
+            
       // To stop capture when needed
       const tracks = screenStream.getTracks();
       tracks.forEach(track => {
@@ -98,7 +45,7 @@ async function captureScreenWithAudio() {
       });
       
       // Connect to signaling server
-      const ws = new WebSocket('ws://localhost:8765');
+      const ws = new WebSocket('ws://localhost:8795');
       const clientId = 'sender-' + Math.floor(Math.random() * 1000);
       let receiverId = null;
       

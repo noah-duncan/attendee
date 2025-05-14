@@ -89,8 +89,8 @@ async def handle_connection(websocket, path):
             logger.info(f"Client disconnected: {client_id}")
 
 async def main():
-    server = await websockets.serve(handle_connection, "localhost", 8765)
-    logger.info("Signaling server running on ws://localhost:8765")
+    server = await websockets.serve(handle_connection, "localhost", 8795)
+    logger.info("Signaling server running on ws://localhost:8795")
     await server.wait_closed()
 
 if __name__ == "__main__":

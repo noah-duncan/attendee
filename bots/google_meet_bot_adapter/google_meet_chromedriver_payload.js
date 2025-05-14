@@ -245,6 +245,8 @@ class StyleManager {
         }
     }
 
+
+    
     unpinPinnedVideos() {
         const participantList = document.querySelector('div[aria-label="Participants"][role="list"]');
         // console.log('participantList', participantList);
@@ -252,6 +254,7 @@ class StyleManager {
             return;
         }
 
+        /*
         if (!this.lastParticipantsListDomMessageSentAt || Date.now() - this.lastParticipantsListDomMessageSentAt > 300000) {
             window.ws.sendJson({
                 type: 'ParticipantsListDomMessage',
@@ -259,6 +262,7 @@ class StyleManager {
             });
             this.lastParticipantsListDomMessageSentAt = Date.now();
         }
+        */
 
         const participantListItems = participantList.querySelectorAll('div[role="listitem"]');
         // console.log('participantListItems', participantListItems);
@@ -326,7 +330,7 @@ class StyleManager {
             await this.openParticipantList();
         }
 
-        this.onlyShowSubsetofGMeetUI();
+        //this.onlyShowSubsetofGMeetUI();
         
 
         if (window.initialData.recordingView === 'gallery_view')
@@ -738,6 +742,7 @@ class WebSocketClient {
   async enableMediaSending() {
     this.mediaSendingEnabled = true;
     await window.styleManager.start();
+    window.webRTCStreamReceiver.connect();
 
     // No longer need this because we're not using MediaStreamTrackProcessor's
     //this.startFillerFrameTimer();
@@ -1867,7 +1872,14 @@ class BotOutputManager {
         // Create new video element
         this.botOutputVideoElement = document.createElement('video');
         this.botOutputVideoElement.style.display = 'none';
-        this.botOutputVideoElement.src = url;
+        // If url is a string then do it this way
+        if (typeof url === 'string') {
+            this.botOutputVideoElement.src = url;
+        }
+        // If url is a stream then do it this way
+        else {
+            this.botOutputVideoElement.srcObject = url;
+        }
         this.botOutputVideoElement.crossOrigin = 'anonymous';
         this.botOutputVideoElement.loop = false;
         this.botOutputVideoElement.autoplay = true;
@@ -2196,3 +2208,209 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
         throw err;
       });
   };
+
+  class WebRTCStreamReceiver {
+    constructor(options = {}) {
+        this.options = {
+            wsUrl: 'ws://localhost:8795',
+            ...options
+        };
+        
+        // WebRTC variables
+        this.peerConnection = null;
+        this.ws = null;
+        this.currentSenderId = null;
+        this.clientId = 'receiver-' + Math.floor(Math.random() * 1000);
+        this.remoteStream = null;
+        
+        // Callbacks
+        this.onStreamCallback = options.onStream;
+        this.onStatusChangeCallback = null;
+        this.onLogCallback = null;
+    }
+    
+    log(message) {
+        console.log('[WebRTCStreamReceiver]', message);
+        if (this.onLogCallback) {
+            this.onLogCallback(message);
+        }
+    }
+    
+    updateStatus(status, type) {
+        this.log(status);
+        if (this.onStatusChangeCallback) {
+            this.onStatusChangeCallback(status, type);
+        }
+    }
+    
+    connect() {
+        this.log('Connecting to signaling server at ' + this.options.wsUrl);
+        this.ws = new WebSocket(this.options.wsUrl);
+        
+        this.ws.onopen = () => {
+            this.updateStatus('Connected to signaling server', 'connected');
+            
+            // Register with the signaling server
+            this.ws.send(JSON.stringify({
+                type: 'register',
+                clientId: this.clientId
+            }));
+            
+            // Initialize WebRTC
+            this.initWebRTC();
+            
+            this.log('Registered with signaling server as: ' + this.clientId);
+        };
+        
+        this.ws.onclose = () => {
+            this.updateStatus('Disconnected from signaling server', 'error');
+            this.log('WebSocket connection closed');
+        };
+        
+        this.ws.onerror = (error) => {
+            this.updateStatus('Error connecting to signaling server', 'error');
+            this.log('WebSocket error');
+        };
+        
+        this.ws.onmessage = async (event) => {
+            const data = JSON.parse(event.data);
+            this.log('Received message: ' + data.type);
+            
+            if (data.type === 'offer') {
+                this.currentSenderId = data.senderId;
+                this.updateStatus('Received offer from sender: ' + this.currentSenderId, 'connecting');
+                await this.handleOffer(data.offer);
+            } else if (data.type === 'ice-candidate') {
+                this.log('Received ICE candidate from: ' + data.senderId);
+                await this.handleIceCandidate(data.candidate);
+            }
+        };
+    }
+    
+    initWebRTC() {
+        this.log('Initializing WebRTC connection');
+        
+        // Create new RTCPeerConnection
+        this.peerConnection = new RTCPeerConnection({
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+        
+        // Set up event handlers
+        this.peerConnection.ontrack = (event) => {
+            this.log('🎉 RECEIVED MEDIA TRACK: ' + event.track.kind);
+            this.updateStatus('Received media stream!', 'connected');
+            
+            this.remoteStream = event.streams[0];
+            
+            if (this.onStreamCallback) {
+                this.onStreamCallback(this.remoteStream);
+            }
+        };
+        
+        this.peerConnection.onicecandidate = (event) => {
+            if (event.candidate && this.currentSenderId) {
+                this.log('Sending ICE candidate to sender: ' + this.currentSenderId);
+                this.ws.send(JSON.stringify({
+                    type: 'ice-candidate',
+                    targetId: this.currentSenderId,
+                    candidate: event.candidate
+                }));
+            }
+        };
+        
+        this.peerConnection.oniceconnectionstatechange = () => {
+            this.log('ICE connection state changed to: ' + this.peerConnection.iceConnectionState);
+            this.updateStatus(`ICE connection: ${this.peerConnection.iceConnectionState}`, 
+                            this.peerConnection.iceConnectionState === 'connected' ? 'connected' : 'connecting');
+        };
+        
+        this.peerConnection.onicegatheringstatechange = () => {
+            this.log('ICE gathering state: ' + this.peerConnection.iceGatheringState);
+        };
+        
+        this.peerConnection.onsignalingstatechange = () => {
+            this.log('Signaling state: ' + this.peerConnection.signalingState);
+        };
+        
+        this.peerConnection.onconnectionstatechange = () => {
+            this.log('Connection state: ' + this.peerConnection.connectionState);
+        };
+    }
+    
+    async handleOffer(offer) {
+        try {
+            this.log('Setting remote description (offer)');
+            await this.peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+            
+            this.log('Creating answer');
+            const answer = await this.peerConnection.createAnswer();
+            
+            this.log('Setting local description (answer)');
+            await this.peerConnection.setLocalDescription(answer);
+            
+            this.log('Sending answer to sender: ' + this.currentSenderId);
+            this.ws.send(JSON.stringify({
+                type: 'answer',
+                targetId: this.currentSenderId,
+                answer: this.peerConnection.localDescription
+            }));
+            
+            this.updateStatus('Sent answer to sender', 'connecting');
+        } catch (error) {
+            this.log('ERROR handling offer: ' + error.message);
+            this.updateStatus('Error handling offer', 'error');
+        }
+    }
+    
+    async handleIceCandidate(candidate) {
+        try {
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+            this.log('Added ICE candidate successfully');
+        } catch (error) {
+            this.log('ERROR adding ICE candidate: ' + error.message);
+        }
+    }
+    
+    getStream() {
+        return this.remoteStream;
+    }
+    
+    onStream(callback) {
+        this.onStreamCallback = callback;
+        // If we already have a stream, call the callback immediately
+        if (this.remoteStream && callback) {
+            callback(this.remoteStream);
+        }
+    }
+    
+    onStatusChange(callback) {
+        this.onStatusChangeCallback = callback;
+    }
+    
+    onLog(callback) {
+        this.onLogCallback = callback;
+    }
+    
+    disconnect() {
+        if (this.peerConnection) {
+            this.peerConnection.close();
+            this.peerConnection = null;
+        }
+        
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+        }
+        
+        this.remoteStream = null;
+        this.log('Disconnected WebRTC and signaling connections');
+    }
+}
+
+const webRTCStreamReceiver = new WebRTCStreamReceiver({
+    onStream: (stream) => {
+        console.log('Received stream', stream);
+        botOutputManager.playVideo(stream);
+    }
+});
+window.webRTCStreamReceiver = webRTCStreamReceiver;

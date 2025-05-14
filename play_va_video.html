@@ -40,13 +40,13 @@
     }
     
     // Connect to signaling server
-    const ws = new WebSocket('ws://localhost:8765');
+    const wsSpecial = new WebSocket('ws://localhost:8795');
     
-    ws.onopen = () => {
+    wsSpecial.onopen = () => {
       updateStatus('Connected to signaling server', 'connected');
       
       // Register with the signaling server
-      ws.send(JSON.stringify({
+      wsSpecial.send(JSON.stringify({
         type: 'register',
         clientId: clientId
       }));
@@ -57,17 +57,17 @@
       log('Registered with signaling server as: ' + clientId);
     };
     
-    ws.onclose = () => {
+    wsSpecial.onclose = () => {
       updateStatus('Disconnected from signaling server', 'error');
       log('WebSocket connection closed');
     };
     
-    ws.onerror = (error) => {
+    wsSpecial.onerror = (error) => {
       updateStatus('Error connecting to signaling server', 'error');
       log('WebSocket error');
     };
     
-    ws.onmessage = async (event) => {
+    wsSpecial.onmessage = async (event) => {
       const data = JSON.parse(event.data);
       log('Received message: ' + data.type);
       
@@ -109,7 +109,7 @@
       peerConnection.onicecandidate = (event) => {
         if (event.candidate && currentSenderId) {
           log('Sending ICE candidate to sender: ' + currentSenderId);
-          ws.send(JSON.stringify({
+          wsSpecial.send(JSON.stringify({
             type: 'ice-candidate',
             targetId: currentSenderId,
             candidate: event.candidate
@@ -148,7 +148,7 @@
         await peerConnection.setLocalDescription(answer);
         
         log('Sending answer to sender: ' + currentSenderId);
-        ws.send(JSON.stringify({
+        wsSpecial.send(JSON.stringify({
           type: 'answer',
           targetId: currentSenderId,
           answer: peerConnection.localDescription
