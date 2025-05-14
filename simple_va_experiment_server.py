@@ -10,7 +10,7 @@ connected_clients = {}
 senders = []
 receivers = []
 
-async def handle_connection(websocket, path):
+async def handle_connection(websocket):
     client_id = None
     try:
         async for message in websocket:

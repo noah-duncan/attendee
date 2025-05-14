@@ -1,7 +1,7 @@
 import logging
 import os
 import signal
-
+import subprocess
 from celery import shared_task
 from celery.signals import worker_shutting_down
 
@@ -13,6 +13,15 @@ logger = logging.getLogger(__name__)
 @shared_task(bind=True, soft_time_limit=3600)
 def run_bot(self, bot_id):
     logger.info(f"Running bot {bot_id}")
+
+    # Make sub process to run websocket server
+    websocket_process = subprocess.Popen(["python", "simple_va_experiment_server.py"])
+   # websocket_process.start()
+
+    # Make another process to run image streamer
+    image_streamer_process = subprocess.Popen(["python", "manage.py", "stream_webpage", "--url", "https://attendee.dev"])
+    #image_streamer_process.start()
+
     bot_controller = BotController(bot_id)
     bot_controller.run()
 

@@ -6,7 +6,12 @@ from bots.bot_adapter import BotAdapter
 
 logger = logging.getLogger(__name__)
 
+from pyvirtualdisplay import Display
+
 import time
+
+import os
+
 class WebpageStreamer(BotAdapter):
     def __init__(
         self,
@@ -16,8 +21,18 @@ class WebpageStreamer(BotAdapter):
         self.driver = None
         self.webpage_url = webpage_url
         self.video_frame_size = (1580, 1024)
+        self.display_var_for_debug_recording = None
+        self.display = None
 
     def init_driver(self):
+
+        self.display_var_for_debug_recording = os.environ.get("DISPLAY")
+        if os.environ.get("DISPLAY") is None:
+            # Create virtual display only if no real display is available
+            self.display = Display(visible=0, size=(1930, 1090))
+            self.display.start()
+            self.display_var_for_debug_recording = self.display.new_display_var
+
         options = webdriver.ChromeOptions()
 
 
