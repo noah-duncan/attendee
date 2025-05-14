@@ -46,7 +46,7 @@ class WebpageStreamer(BotAdapter):
         options.add_argument(f"--load-extension={extension_path}")
 
         options.add_argument("--autoplay-policy=no-user-gesture-required")
-        #options.add_argument("--use-fake-device-for-media-stream")
+        options.add_argument("--use-fake-device-for-media-stream")
         #options.add_argument("--use-fake-ui-for-media-stream")
         options.add_argument(f"--window-size={self.video_frame_size[0]},{self.video_frame_size[1]}")
         options.add_argument("--no-sandbox")
@@ -61,6 +61,10 @@ class WebpageStreamer(BotAdapter):
         options.add_argument("--remote-debugging-port=9222")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
 
+        options.add_experimental_option("prefs", {
+            "profile.default_content_setting_values.media_stream_mic": 1,  # 1 = allow, 2 = block
+        })
+
         self.driver = webdriver.Chrome(options=options)
         logger.info(f"web driver server initialized at port {self.driver.service.port}")
 
@@ -72,7 +76,7 @@ class WebpageStreamer(BotAdapter):
         """
 
         # Add the combined script to execute on new document
-        # self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": combined_code})
+        self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": combined_code})
 
         # navigate to the webpage
         self.driver.get(self.webpage_url)
