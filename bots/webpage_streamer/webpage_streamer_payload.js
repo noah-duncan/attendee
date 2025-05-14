@@ -1,9 +1,12 @@
 async function captureScreenWithAudio() {
     try {
-      // Request screen capture with audio
+      // Request screen capture with audio, preferring the current tab
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: true // This requests audio from the captured screen/app if available
+        video: {
+          displaySurface: 'browser',
+          preferCurrentTab: true
+        },
+        audio: true // This requests audio from the captured tab
       });
       
       // If you also want microphone audio (separate from screen audio)

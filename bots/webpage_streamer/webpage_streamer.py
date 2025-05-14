@@ -34,7 +34,6 @@ class WebpageStreamer(BotAdapter):
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--enable-blink-features=WebCodecs,WebRTC-InsertableStreams,-AutomationControlled")
         options.add_argument("--remote-debugging-port=9222")
-        options.add_argument('--auto-select-desktop-capture-source="*"')
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
 
         self.driver = webdriver.Chrome(options=options)
