@@ -19,7 +19,7 @@ def run_bot(self, bot_id):
    # websocket_process.start()
 
     # Make another process to run image streamer
-    image_streamer_process = subprocess.Popen(["python", "manage.py", "stream_webpage", "--url", "https://attendee.dev/static_video"])
+    image_streamer_process = subprocess.Popen(["python", "manage.py", "stream_webpage", "--url", "https://www.sesame.com/research/crossing_the_uncanny_valley_of_voice#demo"])
     #image_streamer_process.start()
 
     bot_controller = BotController(bot_id)
