@@ -1,0 +1,14 @@
+{
+    "name": "SUT‑capture",
+    "manifest_version": 3,
+    "version": "1.0",
+    "permissions": ["tabCapture", "storage", "scripting"],
+    "background": { "service_worker": "worker.js" },
+    "host_permissions": ["https://*/*", "http://*/*"], 
+    "content_scripts": [
+      {
+        "matches": ["<all_urls>"],
+        "js": ["content.js"]
+      }
+    ]
+  }
