@@ -1,0 +1,18 @@
+{
+    "name": "Tab‑Audio Capture Demo",
+    "description": "Records the audio coming from the active tab.",
+    "version": "1.0",
+    "manifest_version": 3,
+  
+    "permissions": [
+      "tabCapture",
+      "activeTab",
+      "downloads"
+    ],
+
+    "action": {
+      "default_title": "Start / stop tab‑audio capture",
+      "default_popup": "popup.html"
+    }
+  }
+  

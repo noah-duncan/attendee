@@ -35,17 +35,20 @@ class WebpageStreamer(BotAdapter):
 
         options = webdriver.ChromeOptions()
 
+        # Load extension
+        extension_path = "bots/webpage_streamer/extension3"  # Example relative path
+        options.add_argument(f"--load-extension={extension_path}")
 
         options.add_argument("--autoplay-policy=no-user-gesture-required")
         #options.add_argument("--use-fake-device-for-media-stream")
-        options.add_argument("--use-fake-ui-for-media-stream")
+        #options.add_argument("--use-fake-ui-for-media-stream")
         options.add_argument(f"--window-size={self.video_frame_size[0]},{self.video_frame_size[1]}")
         options.add_argument("--no-sandbox")
         #options.add_argument("--start-fullscreen")
         # options.add_argument('--headless=new')
         options.add_argument("--disable-gpu")
         options.add_argument("--disable-web-security")
-        options.add_argument("--mute-audio")
+        #options.add_argument("--mute-audio")
         options.add_argument("--disable-application-cache")
         options.add_argument("--disable-setuid-sandbox")
         options.add_argument("--disable-dev-shm-usage")
@@ -64,7 +67,7 @@ class WebpageStreamer(BotAdapter):
         """
 
         # Add the combined script to execute on new document
-        self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": combined_code})
+        # self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": combined_code})
 
         # navigate to the webpage
         self.driver.get(self.webpage_url)
