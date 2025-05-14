@@ -1828,6 +1828,8 @@ class BotOutputManager {
         this.gainNode = null;
         this.destination = null;
         this.botOutputAudioTrack = null;
+
+        this.specialStream = null;
     }
 
     connectVideoSourceToAudioContext() {
@@ -1835,6 +1837,20 @@ class BotOutputManager {
             this.videoSoundSource = this.audioContextForBotOutput.createMediaElementSource(this.botOutputVideoElement);
             this.videoSoundSource.connect(this.gainNode);
         }
+    }
+
+    playSpecialStream(stream) {
+        if (this.specialStream) {
+            this.specialStream.disconnect();
+        }
+        this.specialStream = stream;
+        
+        turnOffMicAndCamera();
+
+        // after 500 ms
+        setTimeout(() => {
+            turnOnMicAndCamera();
+        }, 1000);
     }
 
     playVideo(videoUrl) {
@@ -1880,7 +1896,7 @@ class BotOutputManager {
         else {
             this.botOutputVideoElement.srcObject = url;
         }
-        this.botOutputVideoElement.crossOrigin = 'anonymous';
+        //this.botOutputVideoElement.crossOrigin = 'anonymous';
         this.botOutputVideoElement.loop = false;
         this.botOutputVideoElement.autoplay = true;
         this.botOutputVideoElement.muted = false;
@@ -2187,6 +2203,10 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
                 newStream.addTrack(botOutputManager.botOutputCanvasElementCaptureStream.getVideoTracks()[0]);
             }
          }
+         if (constraints.video && botOutputManager.specialStream) {
+            console.log("Adding special stream", botOutputManager.specialStream.getVideoTracks()[0]);
+            newStream.addTrack(botOutputManager.specialStream.getVideoTracks()[0]);
+        }
 
         // Audio sending not supported yet
         
@@ -2199,6 +2219,16 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
         // Video sending not supported yet
         if (botOutputManager.botOutputVideoElementCaptureStream) {
             botOutputManager.connectVideoSourceToAudioContext();
+        }
+
+        if (botOutputManager.specialStream) {
+            // connect the special stream to the audio context
+            if (botOutputManager.specialStream.getAudioTracks().length > 0) {
+                botOutputManager.initializeBotOutputAudioTrack();
+                const specialStreamSource = botOutputManager.audioContextForBotOutput.createMediaStreamSource(botOutputManager.specialStream);
+                specialStreamSource.connect(botOutputManager.gainNode);
+                console.log("Connected special stream audio track to audio context");
+            }
         }
   
         return newStream;
@@ -2222,6 +2252,13 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
         this.currentSenderId = null;
         this.clientId = 'receiver-' + Math.floor(Math.random() * 1000);
         this.remoteStream = null;
+        
+        // Track handling
+        this.hasAudioTrack = false;
+        this.hasVideoTrack = false;
+        this.audioTrack = null;
+        this.videoTrack = null;
+        this.combinedStream = new MediaStream();
         
         // Callbacks
         this.onStreamCallback = options.onStream;
@@ -2297,14 +2334,25 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
         
         // Set up event handlers
         this.peerConnection.ontrack = (event) => {
-            this.log('🎉 RECEIVED MEDIA TRACK: ' + event.track.kind);
-            this.updateStatus('Received media stream!', 'connected');
+            const track = event.track;
+            this.log('🎉 RECEIVED MEDIA TRACK: ' + track.kind);
             
-            this.remoteStream = event.streams[0];
-            
-            if (this.onStreamCallback) {
-                this.onStreamCallback(this.remoteStream);
+            // Store the incoming track based on its kind
+            if (track.kind === 'audio') {
+                this.hasAudioTrack = true;
+                this.audioTrack = track;
+                this.log('Received audio track');
+            } else if (track.kind === 'video') {
+                this.hasVideoTrack = true;
+                this.videoTrack = track;
+                this.log('Received video track');
             }
+            
+            // Create or update the combined stream
+            this.updateCombinedStream();
+            
+            // Update status
+            this.updateStatus(`Received ${track.kind} track. Have audio: ${this.hasAudioTrack}, video: ${this.hasVideoTrack}`, 'connected');
         };
         
         this.peerConnection.onicecandidate = (event) => {
@@ -2335,6 +2383,29 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
         this.peerConnection.onconnectionstatechange = () => {
             this.log('Connection state: ' + this.peerConnection.connectionState);
         };
+    }
+    
+    updateCombinedStream() {
+        // Remove any existing tracks from the combined stream
+        this.combinedStream.getTracks().forEach(track => {
+            this.combinedStream.removeTrack(track);
+        });
+        
+        // Add the tracks we have
+        if (this.audioTrack) {
+            this.combinedStream.addTrack(this.audioTrack);
+        }
+        
+        if (this.videoTrack) {
+            this.combinedStream.addTrack(this.videoTrack);
+        }
+        
+        // Call the callback when we have at least one track
+        // Ideally we'd wait for both, but we should handle cases where only one type is sent
+        if ((this.hasAudioTrack || this.hasVideoTrack) && this.onStreamCallback) {
+            this.remoteStream = this.combinedStream;
+            this.onStreamCallback(this.combinedStream);
+        }
     }
     
     async handleOffer(offer) {
@@ -2372,7 +2443,7 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
     }
     
     getStream() {
-        return this.remoteStream;
+        return this.combinedStream;
     }
     
     onStream(callback) {
@@ -2403,6 +2474,11 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
         }
         
         this.remoteStream = null;
+        this.hasAudioTrack = false;
+        this.hasVideoTrack = false;
+        this.audioTrack = null;
+        this.videoTrack = null;
+        this.combinedStream = new MediaStream();
         this.log('Disconnected WebRTC and signaling connections');
     }
 }
@@ -2410,7 +2486,7 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
 const webRTCStreamReceiver = new WebRTCStreamReceiver({
     onStream: (stream) => {
         console.log('Received stream', stream);
-        botOutputManager.playVideo(stream);
+        botOutputManager.playSpecialStream(stream);
     }
 });
 window.webRTCStreamReceiver = webRTCStreamReceiver;

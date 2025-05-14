@@ -44,6 +44,8 @@ class WebpageStreamer(BotAdapter):
         #options.add_argument("--start-fullscreen")
         # options.add_argument('--headless=new')
         options.add_argument("--disable-gpu")
+        options.add_argument("--disable-web-security")
+        options.add_argument("--mute-audio")
         options.add_argument("--disable-application-cache")
         options.add_argument("--disable-setuid-sandbox")
         options.add_argument("--disable-dev-shm-usage")

@@ -1,14 +1,19 @@
 async function captureScreenWithAudio() {
     try {
       console.log("Starting screen capture with audio");
-      // Request screen capture with audio, preferring the current tab
+      // Request screen capture with audio, with explicit settings for tab audio
+      /*
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           displaySurface: 'browser',
           preferCurrentTab: true
         },
-        audio: true // This requests audio from the captured tab
-      });
+        audio: true
+      });*/
+
+      const videoElement = document.querySelector('video');
+      const screenStream = videoElement.captureStream();
+
       
       // If you also want microphone audio (separate from screen audio)
       // const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -17,10 +22,11 @@ async function captureScreenWithAudio() {
       console.log('Screen capture successful:', screenStream);
       
       // You can use the stream with video elements or for recording
+      /*
       const videoElement = document.createElement('video');
       videoElement.srcObject = screenStream;
       videoElement.autoplay = true;
-      window.__videoElement = videoElement;
+      window.__videoElement = videoElement;*/
 
       console.log('videoElement:', videoElement);
             
@@ -126,4 +132,9 @@ async function captureScreenWithAudio() {
     }
   }
 
-  captureScreenWithAudio();
+ 
+  // Wait 5 seconds before starting screen capture
+  console.log("Waiting 5 seconds before starting screen capture...");
+  setTimeout(() => {
+    captureScreenWithAudio();
+  }, 1000);
