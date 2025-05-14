@@ -10,5 +10,11 @@
     "background": {
       "service_worker": "service-worker.js"
     },
-    "permissions": ["tabCapture", "offscreen"]
-  }
+    "permissions": ["tabCapture", "offscreen"],
+    "commands": {
+        "_execute_action": {
+            "suggested_key": { "default": "Ctrl+Shift+Y" },
+            "description": "Activate the extension"
+        }
+    }
+}

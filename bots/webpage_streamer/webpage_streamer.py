@@ -1,5 +1,9 @@
 import logging
 
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver import ActionChains
 from selenium import webdriver
 
 from bots.bot_adapter import BotAdapter
@@ -11,6 +15,8 @@ from pyvirtualdisplay import Display
 import time
 
 import os
+
+import subprocess
 
 class WebpageStreamer(BotAdapter):
     def __init__(
@@ -36,7 +42,7 @@ class WebpageStreamer(BotAdapter):
         options = webdriver.ChromeOptions()
 
         # Load extension
-        extension_path = "bots/webpage_streamer/extension3"  # Example relative path
+        extension_path = "bots/webpage_streamer/extension"  # Example relative path
         options.add_argument(f"--load-extension={extension_path}")
 
         options.add_argument("--autoplay-policy=no-user-gesture-required")
@@ -74,5 +80,20 @@ class WebpageStreamer(BotAdapter):
 
         # wait for the page to load
         self.driver.implicitly_wait(600)
+
+        time.sleep(3)
+
+        # Make sure to use the correct display
+        display_var = self.display_var_for_debug_recording if self.display_var_for_debug_recording else os.environ.get("DISPLAY", ":0")
+        
+        # Execute xdotool command to simulate Ctrl+Shift+Y
+        cmd = f"DISPLAY={display_var} xdotool key ctrl+shift+y"
+        try:
+            subprocess.run(cmd, shell=True, check=True)
+            print(f"Executed OS-level keypress: {cmd}")
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to execute keypress: {e}")
+        
+        print("Pressed Ctrl+Shift+Y at OS level")
 
         time.sleep(600)
