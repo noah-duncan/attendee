@@ -16,6 +16,7 @@ def run_bot(self, bot_id):
 
     # Make sub process to run websocket server
     websocket_process = subprocess.Popen(["python", "simple_va_experiment_server.py"])
+    websocket_process_voice_only = subprocess.Popen(["python", "simple_va_experiment_server.py", "--voice-only"])
    # websocket_process.start()
 
     # Make another process to run image streamer
