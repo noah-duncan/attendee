@@ -2,6 +2,7 @@ import asyncio
 import websockets
 import json
 import logging
+import argparse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("WebRTC-Signaling")
@@ -89,8 +90,16 @@ async def handle_connection(websocket):
             logger.info(f"Client disconnected: {client_id}")
 
 async def main():
-    server = await websockets.serve(handle_connection, "localhost", 8795)
-    logger.info("Signaling server running on ws://localhost:8795")
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='WebRTC Signaling Server')
+    parser.add_argument('--voice-only', action='store_true', help='Run as voice-only server on port 8796')
+    args = parser.parse_args()
+    
+    # Set port based on voice-only argument
+    port = 8796 if args.voice_only else 8795
+    
+    server = await websockets.serve(handle_connection, "localhost", port)
+    logger.info(f"Signaling server running on ws://localhost:{port}")
     await server.wait_closed()
 
 if __name__ == "__main__":

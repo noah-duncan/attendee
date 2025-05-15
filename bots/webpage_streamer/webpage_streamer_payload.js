@@ -22,6 +22,10 @@ class BotOutputManager {
         this.botOutputAudioTrack = null;
 
         this.specialStream = null;
+        this.specialStreamAudioElement = null;
+        this.specialStreamSource = null;
+        this.specialStreamProcessor = null;
+        this.specialStreamAudioContext = null;
     }
 
     connectVideoSourceToAudioContext() {
@@ -32,17 +36,49 @@ class BotOutputManager {
     }
 
     playSpecialStream(stream) {
-        if (this.specialStream) {
-            this.specialStream.disconnect();
-        }
         this.specialStream = stream;
         
-        turnOffMicAndCamera();
-
-        // after 500 ms
-        setTimeout(() => {
-            turnOnMicAndCamera();
-        }, 1000);
+        // Initialize audio context if needed
+        this.initializeBotOutputAudioTrack();
+        
+        // Remove previous audio element if it exists
+        if (this.specialStreamAudioElement) {
+            this.specialStreamAudioElement.pause();
+            if (this.specialStreamSource) {
+                this.specialStreamSource.disconnect();
+                this.specialStreamSource = null;
+            }
+            this.specialStreamAudioElement.remove();
+        }
+        
+        // Create audio element for the stream
+        this.specialStreamAudioElement = document.createElement('audio');
+        this.specialStreamAudioElement.style.display = 'none';
+        this.specialStreamAudioElement.srcObject = stream;
+        this.specialStreamAudioElement.autoplay = true;
+        document.body.appendChild(this.specialStreamAudioElement);
+        
+        // Use a more modern approach with MediaRecorder
+        const audioTrack = stream.getAudioTracks()[0];
+        if (audioTrack) {
+            // Create a new MediaStream with just the audio track
+            const audioStream = new MediaStream([audioTrack]);
+            
+            // Connect the audio stream directly to our output
+            if (this.audioContextForBotOutput) {
+                const streamSource = this.audioContextForBotOutput.createMediaStreamSource(audioStream);
+                streamSource.connect(this.gainNode);
+                
+                // Store reference for cleanup
+                this.specialStreamSource = streamSource;
+            }
+            
+            console.log("Audio track connected to output");
+        } else {
+            console.warn("No audio track found in the stream");
+        }
+        
+        alert("Special stream connected and playing");
     }
 
     playVideo(videoUrl) {
@@ -143,102 +179,6 @@ class BotOutputManager {
         }
     }
 
-    writeImageToBotOutputCanvas(imageBytes) {
-        if (!this.botOutputCanvasElement) {
-            // Create a new canvas element with fixed dimensions
-            this.botOutputCanvasElement = document.createElement('canvas');
-            this.botOutputCanvasElement.width = 1280; // Fixed width
-            this.botOutputCanvasElement.height = 640; // Fixed height
-        }
-        
-        return new Promise((resolve, reject) => {
-            // Create an Image object to load the PNG
-            const img = new Image();
-            
-            // Convert the image bytes to a data URL
-            const blob = new Blob([imageBytes], { type: 'image/png' });
-            const url = URL.createObjectURL(blob);
-            
-            // Draw the image on the canvas when it loads
-            img.onload = () => {
-                // Revoke the URL immediately after image is loaded
-                URL.revokeObjectURL(url);
-                
-                const canvas = this.botOutputCanvasElement;
-                const ctx = canvas.getContext('2d');
-                
-                // Clear the canvas
-                ctx.fillStyle = 'black';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                
-                // Calculate aspect ratios
-                const imgAspect = img.width / img.height;
-                const canvasAspect = canvas.width / canvas.height;
-                
-                // Calculate dimensions to fit image within canvas with letterboxing
-                let renderWidth, renderHeight, offsetX, offsetY;
-                
-                if (imgAspect > canvasAspect) {
-                    // Image is wider than canvas (horizontal letterboxing)
-                    renderWidth = canvas.width;
-                    renderHeight = canvas.width / imgAspect;
-                    offsetX = 0;
-                    offsetY = (canvas.height - renderHeight) / 2;
-                } else {
-                    // Image is taller than canvas (vertical letterboxing)
-                    renderHeight = canvas.height;
-                    renderWidth = canvas.height * imgAspect;
-                    offsetX = (canvas.width - renderWidth) / 2;
-                    offsetY = 0;
-                }
-                
-                this.imageDrawParams = {
-                    img: img,
-                    offsetX: offsetX,
-                    offsetY: offsetY,
-                    width: renderWidth,
-                    height: renderHeight
-                };
-
-                // Clear any existing draw interval
-                if (this.drawInterval) {
-                    clearInterval(this.drawInterval);
-                }
-
-                ctx.drawImage(
-                    this.imageDrawParams.img,
-                    this.imageDrawParams.offsetX,
-                    this.imageDrawParams.offsetY,
-                    this.imageDrawParams.width,
-                    this.imageDrawParams.height
-                );
-
-                // Set up interval to redraw the image every 1 second
-                this.drawInterval = setInterval(() => {
-                    ctx.drawImage(
-                        this.imageDrawParams.img,
-                        this.imageDrawParams.offsetX,
-                        this.imageDrawParams.offsetY,
-                        this.imageDrawParams.width,
-                        this.imageDrawParams.height
-                    );
-                }, 1000);
-                
-                // Resolve the promise now that image is loaded
-                resolve();
-            };
-            
-            // Handle image loading errors
-            img.onerror = (error) => {
-                URL.revokeObjectURL(url);
-                reject(new Error('Failed to load image'));
-            };
-            
-            // Set the image source to start loading
-            img.src = url;
-        });
-    }
-
     initializeBotOutputAudioTrack() {
         if (this.botOutputAudioTrack) {
             return;
@@ -254,7 +194,7 @@ class BotOutputManager {
 
         // Connect gain node to both destinations
         this.gainNode.connect(this.destination);
-        //this.gainNode.connect(this.audioContextForBotOutput.destination);  // For local monitoring
+        this.gainNode.connect(this.audioContextForBotOutput.destination);  // For local monitoring
 
         this.botOutputAudioTrack = this.destination.stream.getAudioTracks()[0];
         
@@ -262,12 +202,12 @@ class BotOutputManager {
         this.audioQueue = [];
         this.nextPlayTime = 0;
         this.isPlaying = false;
-        this.sampleRate = 44100; // Default sample rate
+        this.sampleRate = 48000; // Default sample rate
         this.numChannels = 1;    // Default channels
         this.turnOffMicTimeout = null;
     }
 
-    playPCMAudio(pcmData, sampleRate = 44100, numChannels = 1) {
+    playPCMAudio(pcmData, sampleRate = 48000, numChannels = 1) {
         //turnOnMic();
 
         // Make sure audio context is initialized
@@ -417,7 +357,7 @@ function clickOrbAnimationButton() {
   // Generate fake PCM audio data (sine wave)
 function generateFakePCMData() {
     const duration = 3; // 3 seconds of audio
-    const sampleRate = 44100;
+    const sampleRate = 48000;
     const frequency = 440; // A4 note
     const numSamples = duration * sampleRate;
     
@@ -437,11 +377,11 @@ function generateFakePCMData() {
   }
   
   // Play fake audio data after 10 seconds
-  setInterval(() => {
-    const bigstring = "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WOhH/+qhgoYGCDhHcv/JmChgYIGEBxnA//NkxMwX+GIMFDGGACFRUVFfxZVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxOYaU6D8LBhHoFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV";
-    console.log("ASDSD");
-    playBase64MP3(bigstring);
-  }, 10000);
+  //setInterval(() => {
+    //const bigstring = "xxx";
+   // console.log("ASDSD");
+  //  playBase64MP3(bigstring);
+ // }, 10000);
 
 // Function to play a base64 encoded MP3 file by converting it to PCM
 function playBase64MP3(base64Mp3) {
@@ -490,9 +430,270 @@ function playBase64MP3(base64Mp3) {
       }
       
       // Play the PCM data
+      alert("Playing PCM data ");// + sampleRate.toString() + " " + numChannels.toString() + " " + pcmData.length.toString());
+      alert(sampleRate);
+      alert(numChannels);
+      alert(pcmData.length);
       botOutputManager.playPCMAudio(pcmData, sampleRate, 1);
     })
     .catch(error => {
       console.error('Error decoding MP3:', error);
     });
 }
+
+class WebRTCStreamReceiver {
+    constructor(options = {}) {
+        this.options = {
+            wsUrl: 'ws://localhost:8796',
+            ...options
+        };
+        
+        // WebRTC variables
+        this.peerConnection = null;
+        this.ws = null;
+        this.currentSenderId = null;
+        this.clientId = 'receiver-' + Math.floor(Math.random() * 1000);
+        this.remoteStream = null;
+        
+        // Track handling
+        this.hasAudioTrack = false;
+        this.hasVideoTrack = false;
+        this.audioTrack = null;
+        this.videoTrack = null;
+        this.combinedStream = new MediaStream();
+        
+        // Callbacks
+        this.onStreamCallback = options.onStream;
+        this.onStatusChangeCallback = null;
+        this.onLogCallback = null;
+    }
+    
+    log(message) {
+        console.log('[WebRTCStreamReceiver]', message);
+        if (this.onLogCallback) {
+            this.onLogCallback(message);
+        }
+    }
+    
+    updateStatus(status, type) {
+        this.log(status);
+        if (this.onStatusChangeCallback) {
+            this.onStatusChangeCallback(status, type);
+        }
+    }
+    
+    connect() {
+        this.log('Connecting to signaling server at ' + this.options.wsUrl);
+        this.ws = new WebSocket(this.options.wsUrl);
+        
+        this.ws.onopen = () => {
+            this.updateStatus('Connected to signaling server', 'connected');
+            
+            // Register with the signaling server
+            this.ws.send(JSON.stringify({
+                type: 'register',
+                clientId: this.clientId
+            }));
+            
+            // Initialize WebRTC
+            this.initWebRTC();
+            
+            this.log('Registered with signaling server as: ' + this.clientId);
+        };
+        
+        this.ws.onclose = () => {
+            this.updateStatus('Disconnected from signaling server', 'error');
+            this.log('WebSocket connection closed');
+        };
+        
+        this.ws.onerror = (error) => {
+            this.updateStatus('Error connecting to signaling server', 'error');
+            this.log('WebSocket error');
+        };
+        
+        this.ws.onmessage = async (event) => {
+            const data = JSON.parse(event.data);
+            this.log('Received message: ' + data.type);
+            
+            if (data.type === 'offer') {
+                this.currentSenderId = data.senderId;
+                this.updateStatus('Received offer from sender: ' + this.currentSenderId, 'connecting');
+                await this.handleOffer(data.offer);
+            } else if (data.type === 'ice-candidate') {
+                this.log('Received ICE candidate from: ' + data.senderId);
+                await this.handleIceCandidate(data.candidate);
+            }
+        };
+    }
+    
+    initWebRTC() {
+        this.log('Initializing WebRTC connection');
+        
+        // Create new RTCPeerConnection
+        this.peerConnection = new RTCPeerConnection({
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+        
+        // Set up event handlers
+        this.peerConnection.ontrack = (event) => {
+            const track = event.track;
+            this.log('🎉 RECEIVED MEDIA TRACK: ' + track.kind);
+            
+            // Store the incoming track based on its kind
+            if (track.kind === 'audio') {
+                this.hasAudioTrack = true;
+                this.audioTrack = track;
+                this.log('Received audio track');
+            } else if (track.kind === 'video') {
+                this.hasVideoTrack = true;
+                this.videoTrack = track;
+                this.log('Received video track');
+            }
+            
+            // Create or update the combined stream
+            this.updateCombinedStream();
+            
+            // Update status
+            this.updateStatus(`Received ${track.kind} track. Have audio: ${this.hasAudioTrack}, video: ${this.hasVideoTrack}`, 'connected');
+        };
+        
+        this.peerConnection.onicecandidate = (event) => {
+            if (event.candidate && this.currentSenderId) {
+                this.log('Sending ICE candidate to sender: ' + this.currentSenderId);
+                this.ws.send(JSON.stringify({
+                    type: 'ice-candidate',
+                    targetId: this.currentSenderId,
+                    candidate: event.candidate
+                }));
+            }
+        };
+        
+        this.peerConnection.oniceconnectionstatechange = () => {
+            this.log('ICE connection state changed to: ' + this.peerConnection.iceConnectionState);
+            this.updateStatus(`ICE connection: ${this.peerConnection.iceConnectionState}`, 
+                            this.peerConnection.iceConnectionState === 'connected' ? 'connected' : 'connecting');
+        };
+        
+        this.peerConnection.onicegatheringstatechange = () => {
+            this.log('ICE gathering state: ' + this.peerConnection.iceGatheringState);
+        };
+        
+        this.peerConnection.onsignalingstatechange = () => {
+            this.log('Signaling state: ' + this.peerConnection.signalingState);
+        };
+        
+        this.peerConnection.onconnectionstatechange = () => {
+            this.log('Connection state: ' + this.peerConnection.connectionState);
+        };
+    }
+    
+    updateCombinedStream() {
+        // Remove any existing tracks from the combined stream
+        this.combinedStream.getTracks().forEach(track => {
+            this.combinedStream.removeTrack(track);
+        });
+        
+        // Add the tracks we have
+        if (this.audioTrack) {
+            this.combinedStream.addTrack(this.audioTrack);
+        }
+        
+        // Call the callback when we have at least one track
+        // Ideally we'd wait for both, but we should handle cases where only one type is sent
+        if ((this.hasAudioTrack) && this.onStreamCallback) {
+            this.remoteStream = this.combinedStream;
+            this.onStreamCallback(this.combinedStream);
+        }
+    }
+    
+    async handleOffer(offer) {
+        try {
+            this.log('Setting remote description (offer)');
+            await this.peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+            
+            this.log('Creating answer');
+            const answer = await this.peerConnection.createAnswer();
+            
+            this.log('Setting local description (answer)');
+            await this.peerConnection.setLocalDescription(answer);
+            
+            this.log('Sending answer to sender: ' + this.currentSenderId);
+            this.ws.send(JSON.stringify({
+                type: 'answer',
+                targetId: this.currentSenderId,
+                answer: this.peerConnection.localDescription
+            }));
+            
+            this.updateStatus('Sent answer to sender', 'connecting');
+        } catch (error) {
+            this.log('ERROR handling offer: ' + error.message);
+            this.updateStatus('Error handling offer', 'error');
+        }
+    }
+    
+    async handleIceCandidate(candidate) {
+        try {
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+            this.log('Added ICE candidate successfully');
+        } catch (error) {
+            this.log('ERROR adding ICE candidate: ' + error.message);
+        }
+    }
+    
+    getStream() {
+        return this.combinedStream;
+    }
+    
+    onStream(callback) {
+        this.onStreamCallback = callback;
+        // If we already have a stream, call the callback immediately
+        if (this.remoteStream && callback) {
+            callback(this.remoteStream);
+        }
+    }
+    
+    onStatusChange(callback) {
+        this.onStatusChangeCallback = callback;
+    }
+    
+    onLog(callback) {
+        this.onLogCallback = callback;
+    }
+    
+    disconnect() {
+        if (this.peerConnection) {
+            this.peerConnection.close();
+            this.peerConnection = null;
+        }
+        
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+        }
+        
+        this.remoteStream = null;
+        this.hasAudioTrack = false;
+        this.hasVideoTrack = false;
+        this.audioTrack = null;
+        this.videoTrack = null;
+        this.combinedStream = new MediaStream();
+        this.log('Disconnected WebRTC and signaling connections');
+    }
+}
+
+
+const webRTCStreamReceiver = new WebRTCStreamReceiver({
+    onStream: (stream) => {
+        alert('stream received first')
+        if (stream instanceof MediaStream) {
+            alert('stream is a MediaStream');
+        }
+        botOutputManager.playSpecialStream(stream);
+        // create an audio element and play the stream
+    }
+});
+window.webRTCStreamReceiver = webRTCStreamReceiver;
+
+setTimeout(() => {
+    webRTCStreamReceiver.connect();
+}, 10000);
