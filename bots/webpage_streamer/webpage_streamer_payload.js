@@ -78,7 +78,6 @@ class BotOutputManager {
             console.warn("No audio track found in the stream");
         }
         
-        alert("Special stream connected and playing");
     }
 
     playVideo(videoUrl) {
@@ -194,7 +193,7 @@ class BotOutputManager {
 
         // Connect gain node to both destinations
         this.gainNode.connect(this.destination);
-        this.gainNode.connect(this.audioContextForBotOutput.destination);  // For local monitoring
+        //this.gainNode.connect(this.audioContextForBotOutput.destination);  // For local monitoring
 
         this.botOutputAudioTrack = this.destination.stream.getAudioTracks()[0];
         
@@ -429,11 +428,7 @@ function playBase64MP3(base64Mp3) {
         }
       }
       
-      // Play the PCM data
-      alert("Playing PCM data ");// + sampleRate.toString() + " " + numChannels.toString() + " " + pcmData.length.toString());
-      alert(sampleRate);
-      alert(numChannels);
-      alert(pcmData.length);
+  
       botOutputManager.playPCMAudio(pcmData, sampleRate, 1);
     })
     .catch(error => {
@@ -684,10 +679,6 @@ class WebRTCStreamReceiver {
 
 const webRTCStreamReceiver = new WebRTCStreamReceiver({
     onStream: (stream) => {
-        alert('stream received first')
-        if (stream instanceof MediaStream) {
-            alert('stream is a MediaStream');
-        }
         botOutputManager.playSpecialStream(stream);
         // create an audio element and play the stream
     }
