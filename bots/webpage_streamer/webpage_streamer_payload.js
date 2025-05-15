@@ -56,6 +56,7 @@ class BotOutputManager {
         this.specialStreamAudioElement.style.display = 'none';
         this.specialStreamAudioElement.srcObject = stream;
         this.specialStreamAudioElement.autoplay = true;
+        this.specialStreamAudioElement.muted = true;
         document.body.appendChild(this.specialStreamAudioElement);
         
         // Use a more modern approach with MediaRecorder
