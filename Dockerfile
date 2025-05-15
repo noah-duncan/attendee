@@ -70,6 +70,9 @@ RUN pip install pyjwt cython gdown deepgram-sdk python-dotenv
 # Install gstreamer
 RUN apt-get install -y gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgirepository1.0-dev --fix-missing
 
+# Install xdotool
+RUN apt-get install -y xdotool
+
 # Alias python3 to python
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
