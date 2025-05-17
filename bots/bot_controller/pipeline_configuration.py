@@ -12,6 +12,7 @@ class PipelineConfiguration:
     transcribe_audio: bool
     rtmp_stream_audio: bool
     rtmp_stream_video: bool
+    websocket_stream_audio: bool
 
     def __post_init__(self):
         # Convert to FrozenSet of FrozenSet[str]
@@ -23,6 +24,8 @@ class PipelineConfiguration:
                 frozenset({"rtmp_stream_audio", "rtmp_stream_video", "transcribe_audio"}),
                 # Voice agent configuration
                 frozenset({"transcribe_audio"}),
+                # Websocket client configuration
+                frozenset({"websocket_stream_audio"}),
             }
         )
 
@@ -41,6 +44,7 @@ class PipelineConfiguration:
             transcribe_audio=True,
             rtmp_stream_audio=False,
             rtmp_stream_video=False,
+            websocket_stream_audio=False,
         )
 
     @classmethod
@@ -51,6 +55,18 @@ class PipelineConfiguration:
             transcribe_audio=True,
             rtmp_stream_audio=True,
             rtmp_stream_video=True,
+            websocket_stream_audio=False,
+        )
+
+    @classmethod
+    def websocket_streaming_bot(cls) -> "PipelineConfiguration":
+        return cls(
+            record_video=False,
+            record_audio=False,
+            transcribe_audio=False,
+            rtmp_stream_audio=False,
+            rtmp_stream_video=False,
+            websocket_stream_audio=True,
         )
 
     @classmethod
@@ -61,4 +77,5 @@ class PipelineConfiguration:
             transcribe_audio=True,
             rtmp_stream_audio=False,
             rtmp_stream_video=False,
+            websocket_stream_audio=False,
         )
