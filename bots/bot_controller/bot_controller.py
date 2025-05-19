@@ -5,7 +5,9 @@ import signal
 import threading
 import time
 import traceback
+from base64 import b64decode, b64encode
 from datetime import timedelta
+from enum import Enum
 
 import gi
 import redis
@@ -13,6 +15,7 @@ from django.core.files.base import ContentFile
 from django.utils import timezone
 
 from bots.bot_adapter import BotAdapter
+from bots.bot_controller.bot_websocket_client import BotWebsocketClient
 from bots.models import (
     Bot,
     BotDebugScreenshot,
@@ -78,7 +81,7 @@ class BotController:
             meeting_url=self.bot_in_db.meeting_url,
             add_video_frame_callback=None,
             wants_any_video_frames_callback=None,
-            add_mixed_audio_chunk_callback=None,
+            add_mixed_audio_chunk_callback=self.add_mixed_audio_chunk_callback,
             upsert_caption_callback=self.closed_caption_manager.upsert_caption,
             automatic_leave_configuration=self.automatic_leave_configuration,
             add_encoded_mp4_chunk_callback=None,
@@ -100,7 +103,7 @@ class BotController:
             meeting_url=self.bot_in_db.meeting_url,
             add_video_frame_callback=None,
             wants_any_video_frames_callback=None,
-            add_mixed_audio_chunk_callback=None,
+            add_mixed_audio_chunk_callback=self.add_mixed_audio_chunk_callback,
             upsert_caption_callback=self.closed_caption_manager.upsert_caption,
             automatic_leave_configuration=self.automatic_leave_configuration,
             add_encoded_mp4_chunk_callback=None,
@@ -126,7 +129,7 @@ class BotController:
 
         return ZoomBotAdapter(
             use_one_way_audio=self.pipeline_configuration.transcribe_audio,
-            use_mixed_audio=self.pipeline_configuration.record_audio or self.pipeline_configuration.rtmp_stream_audio,
+            use_mixed_audio=self.pipeline_configuration.record_audio or self.pipeline_configuration.rtmp_stream_audio or self.pipeline_configuration.websocket_stream_audio,
             use_video=self.pipeline_configuration.record_video or self.pipeline_configuration.rtmp_stream_video,
             display_name=self.bot_in_db.name,
             send_message_callback=self.on_message_from_adapter,
@@ -136,10 +139,25 @@ class BotController:
             meeting_url=self.bot_in_db.meeting_url,
             add_video_frame_callback=self.gstreamer_pipeline.on_new_video_frame,
             wants_any_video_frames_callback=self.gstreamer_pipeline.wants_any_video_frames,
-            add_mixed_audio_chunk_callback=self.gstreamer_pipeline.on_mixed_audio_raw_data_received_callback,
+            add_mixed_audio_chunk_callback=self.add_mixed_audio_chunk_callback,
             automatic_leave_configuration=self.automatic_leave_configuration,
             video_frame_size=self.bot_in_db.recording_dimensions(),
         )
+
+    def add_mixed_audio_chunk_callback(self, chunk: bytes, sample_rate: int, num_channels: int, timestamp: int):
+        # We need to encode the chunk as base64 to send it to the websocket
+        chunk_base64 = b64encode(chunk).decode("ascii")
+
+        self.send_message_to_websocket(
+            event_type=BotEventTypes.MEDIA_CHUNK,
+            event_sub_type=BotEventSubTypes.MIXED_AUDIO_CHUNK,
+            event_metadata={"timestamp": timestamp},
+            # We assume PCM in 16-bit
+            event_data={"chunk": chunk_base64, "sample_rate": sample_rate, "num_channels": num_channels},
+        )
+
+        if self.gstreamer_pipeline:
+            self.gstreamer_pipeline.on_mixed_audio_raw_data_received_callback(chunk)
 
     def get_meeting_type(self):
         meeting_type = meeting_type_from_url(self.bot_in_db.meeting_url)
@@ -328,6 +346,8 @@ class BotController:
 
         if self.bot_in_db.rtmp_destination_url():
             self.pipeline_configuration = PipelineConfiguration.rtmp_streaming_bot()
+        elif self.bot_in_db.websocket_url():
+            self.pipeline_configuration = PipelineConfiguration.websocket_streaming_bot()
         else:
             self.pipeline_configuration = PipelineConfiguration.recorder_bot()
 
@@ -363,8 +383,11 @@ class BotController:
         elif meeting_type == MeetingTypes.TEAMS:
             return False
 
+    def should_create_websocket_client(self):
+        return self.pipeline_configuration.websocket_stream_audio
+
     def should_create_screen_and_audio_recorder(self):
-        return not self.should_create_gstreamer_pipeline()
+        return not self.should_create_gstreamer_pipeline() and not self.should_create_websocket_client()
 
     def connect_to_redis(self):
         # Close both pubsub and client if they exist
@@ -432,6 +455,14 @@ class BotController:
                 file_location=self.get_recording_file_location(),
                 recording_dimensions=self.bot_in_db.recording_dimensions(),
             )
+
+        self.websocket_client = None
+        if self.should_create_websocket_client():
+            self.websocket_client = BotWebsocketClient(
+                url=self.bot_in_db.websocket_url(),
+                on_message_callback=self.on_message_from_websocket,
+            )
+            self.websocket_client.start()
 
         self.adapter = self.get_bot_adapter()
 
@@ -767,11 +798,36 @@ class BotController:
                 debug_screenshot.file.save(f"debug_screen_recording_{debug_screenshot.object_id}.mp4", f, save=True)
             logger.info(f"Saved debug recording with ID {debug_screenshot.object_id}")
 
+    def on_message_from_websocket(self, message_json: str):
+        message = json.loads(message_json)
+        if message["event_type"] == "MEDIA_CHUNK" and message["event_sub_type"] == "OUTPUT_AUDIO_CHUNK":
+            chunk = b64decode(message["event_data"]["chunk"])
+            sample_rate = message["event_data"]["sample_rate"]
+            self.adapter.send_raw_audio(chunk, sample_rate)
+        else:
+            logger.info("Received message from websocket: %s", message)
+
+    def send_message_to_websocket(self, event_type: Enum, event_sub_type: Enum | None = None, event_metadata: dict = None, event_data: dict = None):
+        if not self.websocket_client:
+            return
+        self.websocket_client.send_async(
+            {
+                "event_type": event_type.name,
+                "event_sub_type": event_sub_type.name if event_sub_type else None,
+                "event_metadata": event_metadata,
+                "event_data": event_data,
+            }
+        )
+
     def take_action_based_on_message_from_adapter(self, message):
         if message.get("message") == BotAdapter.Messages.REQUEST_TO_JOIN_DENIED:
             logger.info("Received message that request to join was denied")
             BotEventManager.create_event(
                 bot=self.bot_in_db,
+                event_type=BotEventTypes.COULD_NOT_JOIN,
+                event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_REQUEST_TO_JOIN_DENIED,
+            )
+            self.send_message_to_websocket(
                 event_type=BotEventTypes.COULD_NOT_JOIN,
                 event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_REQUEST_TO_JOIN_DENIED,
             )
@@ -782,6 +838,10 @@ class BotController:
             logger.info("Received message that meeting not found")
             BotEventManager.create_event(
                 bot=self.bot_in_db,
+                event_type=BotEventTypes.COULD_NOT_JOIN,
+                event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_MEETING_NOT_FOUND,
+            )
+            self.send_message_to_websocket(
                 event_type=BotEventTypes.COULD_NOT_JOIN,
                 event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_MEETING_NOT_FOUND,
             )
@@ -796,6 +856,13 @@ class BotController:
 
                 new_bot_event = BotEventManager.create_event(
                     bot=self.bot_in_db,
+                    event_type=BotEventTypes.FATAL_ERROR,
+                    event_sub_type=BotEventSubTypes.FATAL_ERROR_UI_ELEMENT_NOT_FOUND,
+                    event_metadata={
+                        "bot_restarts_exceeded_max_retries": True,
+                    },
+                )
+                self.send_message_to_websocket(
                     event_type=BotEventTypes.FATAL_ERROR,
                     event_sub_type=BotEventSubTypes.FATAL_ERROR_UI_ELEMENT_NOT_FOUND,
                     event_metadata={
@@ -820,18 +887,23 @@ class BotController:
             screenshot_available = message.get("screenshot_path") is not None
             mhtml_file_available = message.get("mhtml_file_path") is not None
 
+            event_metadata = {
+                "step": message.get("step"),
+                "current_time": message.get("current_time").isoformat(),
+                "exception_type": message.get("exception_type"),
+                "exception_message": message.get("exception_message"),
+                "inner_exception_type": message.get("inner_exception_type"),
+            }
             new_bot_event = BotEventManager.create_event(
                 bot=self.bot_in_db,
                 event_type=BotEventTypes.FATAL_ERROR,
                 event_sub_type=BotEventSubTypes.FATAL_ERROR_UI_ELEMENT_NOT_FOUND,
-                event_metadata={
-                    "step": message.get("step"),
-                    "current_time": message.get("current_time").isoformat(),
-                    "exception_type": message.get("exception_type"),
-                    "exception_message": message.get("exception_message"),
-                    "inner_exception_type": message.get("inner_exception_type"),
-                    "inner_exception_message": message.get("inner_exception_message"),
-                },
+                event_metadata=event_metadata,
+            )
+            self.send_message_to_websocket(
+                event_type=BotEventTypes.FATAL_ERROR,
+                event_sub_type=BotEventSubTypes.FATAL_ERROR_UI_ELEMENT_NOT_FOUND,
+                event_metadata=event_metadata,
             )
 
             if screenshot_available:
@@ -871,6 +943,10 @@ class BotController:
             }[message.get("leave_reason")]
 
             BotEventManager.create_event(bot=self.bot_in_db, event_type=BotEventTypes.LEAVE_REQUESTED, event_sub_type=event_sub_type_for_reason)
+            self.send_message_to_websocket(
+                event_type=BotEventTypes.LEAVE_REQUESTED,
+                event_sub_type=event_sub_type_for_reason,
+            )
             BotEventManager.set_requested_bot_action_taken_at(self.bot_in_db)
             self.adapter.leave()
             return
@@ -880,8 +956,14 @@ class BotController:
             self.flush_utterances()
             if self.bot_in_db.state == BotStates.LEAVING:
                 BotEventManager.create_event(bot=self.bot_in_db, event_type=BotEventTypes.BOT_LEFT_MEETING)
+                self.send_message_to_websocket(
+                    event_type=BotEventTypes.BOT_LEFT_MEETING,
+                )
             else:
                 BotEventManager.create_event(bot=self.bot_in_db, event_type=BotEventTypes.MEETING_ENDED)
+                self.send_message_to_websocket(
+                    event_type=BotEventTypes.MEETING_ENDED,
+                )
             self.cleanup()
 
             return
@@ -890,6 +972,11 @@ class BotController:
             logger.info(f"Received message that meeting status failed unable to join external meeting with zoom_result_code={message.get('zoom_result_code')}")
             BotEventManager.create_event(
                 bot=self.bot_in_db,
+                event_type=BotEventTypes.COULD_NOT_JOIN,
+                event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_UNPUBLISHED_ZOOM_APP,
+                event_metadata={"zoom_result_code": str(message.get("zoom_result_code"))},
+            )
+            self.send_message_to_websocket(
                 event_type=BotEventTypes.COULD_NOT_JOIN,
                 event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_UNPUBLISHED_ZOOM_APP,
                 event_metadata={"zoom_result_code": str(message.get("zoom_result_code"))},
@@ -905,6 +992,11 @@ class BotController:
                 event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_MEETING_STATUS_FAILED,
                 event_metadata={"zoom_result_code": str(message.get("zoom_result_code"))},
             )
+            self.send_message_to_websocket(
+                event_type=BotEventTypes.COULD_NOT_JOIN,
+                event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_MEETING_STATUS_FAILED,
+                event_metadata={"zoom_result_code": str(message.get("zoom_result_code"))},
+            )
             self.cleanup()
             return
 
@@ -912,6 +1004,11 @@ class BotController:
             logger.info(f"Received message that authorization failed with zoom_result_code={message.get('zoom_result_code')}")
             BotEventManager.create_event(
                 bot=self.bot_in_db,
+                event_type=BotEventTypes.COULD_NOT_JOIN,
+                event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_AUTHORIZATION_FAILED,
+                event_metadata={"zoom_result_code": str(message.get("zoom_result_code"))},
+            )
+            self.send_message_to_websocket(
                 event_type=BotEventTypes.COULD_NOT_JOIN,
                 event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_AUTHORIZATION_FAILED,
                 event_metadata={"zoom_result_code": str(message.get("zoom_result_code"))},
@@ -927,6 +1024,11 @@ class BotController:
                 event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_SDK_INTERNAL_ERROR,
                 event_metadata={"zoom_result_code": str(message.get("zoom_result_code"))},
             )
+            self.send_message_to_websocket(
+                event_type=BotEventTypes.COULD_NOT_JOIN,
+                event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_SDK_INTERNAL_ERROR,
+                event_metadata={"zoom_result_code": str(message.get("zoom_result_code"))},
+            )
             self.cleanup()
             return
 
@@ -934,6 +1036,10 @@ class BotController:
             logger.info("Received message to leave meeting because waiting room timeout exceeded")
             BotEventManager.create_event(
                 bot=self.bot_in_db,
+                event_type=BotEventTypes.COULD_NOT_JOIN,
+                event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_WAITING_ROOM_TIMEOUT_EXCEEDED,
+            )
+            self.send_message_to_websocket(
                 event_type=BotEventTypes.COULD_NOT_JOIN,
                 event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_WAITING_ROOM_TIMEOUT_EXCEEDED,
             )
@@ -947,17 +1053,27 @@ class BotController:
                 event_type=BotEventTypes.COULD_NOT_JOIN,
                 event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_NOT_STARTED_WAITING_FOR_HOST,
             )
+            self.send_message_to_websocket(
+                event_type=BotEventTypes.COULD_NOT_JOIN,
+                event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_NOT_STARTED_WAITING_FOR_HOST,
+            )
             self.cleanup()
             return
 
         if message.get("message") == BotAdapter.Messages.BOT_PUT_IN_WAITING_ROOM:
             logger.info("Received message to put bot in waiting room")
             BotEventManager.create_event(bot=self.bot_in_db, event_type=BotEventTypes.BOT_PUT_IN_WAITING_ROOM)
+            self.send_message_to_websocket(
+                event_type=BotEventTypes.BOT_PUT_IN_WAITING_ROOM,
+            )
             return
 
         if message.get("message") == BotAdapter.Messages.BOT_JOINED_MEETING:
             logger.info("Received message that bot joined meeting")
             BotEventManager.create_event(bot=self.bot_in_db, event_type=BotEventTypes.BOT_JOINED_MEETING)
+            self.send_message_to_websocket(
+                event_type=BotEventTypes.BOT_JOINED_MEETING,
+            )
             return
 
         if message.get("message") == BotAdapter.Messages.READY_TO_SHOW_BOT_IMAGE:
@@ -971,6 +1087,9 @@ class BotController:
             logger.info("Received message that bot recording permission granted")
             BotEventManager.create_event(
                 bot=self.bot_in_db,
+                event_type=BotEventTypes.BOT_RECORDING_PERMISSION_GRANTED,
+            )
+            self.send_message_to_websocket(
                 event_type=BotEventTypes.BOT_RECORDING_PERMISSION_GRANTED,
             )
             return

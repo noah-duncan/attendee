@@ -267,6 +267,13 @@ class Bot(models.Model):
 
         return f"{destination_url}/{stream_key}"
 
+    def websocket_url(self):
+        """Websocket URL is used to send video frames to the bot"""
+        websocket_settings = self.settings.get("websocket_settings", {})
+        if websocket_settings is None:
+            return None
+        return websocket_settings.get("url", None)
+
     def recording_format(self):
         recording_settings = self.settings.get("recording_settings", {})
         if recording_settings is None:
@@ -419,6 +426,7 @@ class BotEventTypes(models.IntegerChoices):
     COULD_NOT_JOIN = 9, "Bot could not join meeting"
     POST_PROCESSING_COMPLETED = 10, "Post Processing Completed"
     DATA_DELETED = 11, "Data Deleted"
+    MEDIA_CHUNK = 12, "Media Chunk"
 
     @classmethod
     def type_to_api_code(cls, value):
@@ -435,6 +443,7 @@ class BotEventTypes(models.IntegerChoices):
             cls.COULD_NOT_JOIN: "could_not_join_meeting",
             cls.POST_PROCESSING_COMPLETED: "post_processing_completed",
             cls.DATA_DELETED: "data_deleted",
+            cls.MEDIA_CHUNK: "media_chunk",
         }
         return mapping.get(value)
 
@@ -474,6 +483,8 @@ class BotEventSubTypes(models.IntegerChoices):
     COULD_NOT_JOIN_MEETING_MEETING_NOT_FOUND = 14, "Bot could not join meeting - Meeting not found"
     FATAL_ERROR_BOT_NOT_LAUNCHED = 15, "Fatal error - Bot not launched"
     COULD_NOT_JOIN_MEETING_WAITING_ROOM_TIMEOUT_EXCEEDED = 16, "Bot could not join meeting - Waiting room timeout exceeded"
+    MIXED_AUDIO_CHUNK = 17, "Mixed audio chunk"
+    VIDEO_CHUNK = 18, "Video chunk"
 
     @classmethod
     def sub_type_to_api_code(cls, value):
