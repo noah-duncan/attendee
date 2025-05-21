@@ -43,19 +43,8 @@ Bots go through these lifecycle states:
 5. Precise timestamps for each utterance
 
 ## Configuration Options
-Bots can be configured with:
 
-1. Transcription Settings
-   - Language selection
-   - Automatic language detection
-   - Deepgram-specific options
-
-2. Recording Settings
-   - Recording type (Audio and Video / Audio Only)
-   - Recording view (Speaker View / Gallery View)
-3. RTMP Streaming Settings
-   - Destination URL (must start with rtmp:// or rtmps://)
-   - Stream key
+See the [Bots Configuration Options](bots_config_options.md) for detailed configuration options.
 
 ## Platform Support
 Currently supported platforms:
