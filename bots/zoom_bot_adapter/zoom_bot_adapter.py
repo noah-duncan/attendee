@@ -82,6 +82,7 @@ class ZoomBotAdapter(BotAdapter):
         add_video_frame_callback,
         wants_any_video_frames_callback,
         add_mixed_audio_chunk_callback,
+        upsert_chat_message_callback,
         automatic_leave_configuration: AutomaticLeaveConfiguration,
         video_frame_size: tuple[int, int],
     ):
@@ -94,6 +95,7 @@ class ZoomBotAdapter(BotAdapter):
         self.add_mixed_audio_chunk_callback = add_mixed_audio_chunk_callback
         self.add_video_frame_callback = add_video_frame_callback
         self.wants_any_video_frames_callback = wants_any_video_frames_callback
+        self.upsert_chat_message_callback = upsert_chat_message_callback
 
         self._jwt_token = generate_jwt(zoom_client_id, zoom_client_secret)
         self.meeting_id, self.meeting_password = parse_join_url(meeting_url)
@@ -336,6 +338,29 @@ class ZoomBotAdapter(BotAdapter):
             self.active_sharer_source_id = new_active_sharer_source_id
             self.set_video_input_manager_based_on_state()
 
+    def on_chat_msg_notification_callback(self, chat_msg_info, content):
+        try:
+            self.upsert_chat_message_callback(
+                {
+                    "text": chat_msg_info.GetContent(),
+                    "participant_uuid": chat_msg_info.GetSenderUserId(),
+                    "timestamp": chat_msg_info.GetTimeStamp(),
+                    "message_uuid": chat_msg_info.GetMessageID(),
+                    # Simplified logic to determine if the message is for the bot. Not completely accurate.
+                    "to_bot": not chat_msg_info.IsChatToAllPanelist() and not chat_msg_info.IsChatToAll() and not chat_msg_info.IsChatToWaitingroom(),
+                    "additional_data": {
+                        "is_comment": chat_msg_info.IsComment(),
+                        "is_thread": chat_msg_info.IsThread(),
+                        "thread_id": chat_msg_info.GetThreadID(),
+                        "is_chat_to_all": chat_msg_info.IsChatToAll(),
+                        "is_chat_to_all_panelist": chat_msg_info.IsChatToAllPanelist(),
+                        "is_chat_to_waitingroom": chat_msg_info.IsChatToWaitingroom(),
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"Error processing chat message: {e}")
+
     def on_join(self):
         # Meeting reminder controller
         self.joined_at = time.time()
@@ -351,6 +376,11 @@ class ZoomBotAdapter(BotAdapter):
         participant_ids_list = self.participants_ctrl.GetParticipantsList()
         for participant_id in participant_ids_list:
             self.get_participant(participant_id)
+
+        # Chats controller
+        self.chat_ctrl = self.meeting_service.GetMeetingChatController()
+        self.chat_ctrl_event = zoom.MeetingChatEventCallbacks(onChatMsgNotificationCallback=self.on_chat_msg_notification_callback)
+        self.chat_ctrl.SetEvent(self.chat_ctrl_event)
 
         # Meeting sharing controller
         self.meeting_sharing_controller = self.meeting_service.GetMeetingShareController()

@@ -23,6 +23,8 @@ from bots.models import (
     BotMediaRequestMediaTypes,
     BotMediaRequestStates,
     BotStates,
+    ChatMessage,
+    ChatMessageToOptions,
     Credentials,
     CreditTransaction,
     MediaBlob,
@@ -798,6 +800,19 @@ class TestZoomBot(TransactionTestCase):
         image_request = None
         speech_request = None
 
+        # Create a mock chat message info object
+        mock_chat_msg_info = MagicMock()
+        mock_chat_msg_info.GetContent.return_value = "Hello bot from Test User!"
+        mock_chat_msg_info.GetSenderUserId.return_value = 2  # Test User's ID
+        mock_chat_msg_info.GetTimeStamp.return_value = time.time()
+        mock_chat_msg_info.GetMessageID.return_value = "test_chat_message_id_001"
+        mock_chat_msg_info.IsChatToAllPanelist.return_value = False
+        mock_chat_msg_info.IsChatToAll.return_value = False
+        mock_chat_msg_info.IsChatToWaitingroom.return_value = False
+        mock_chat_msg_info.IsComment.return_value = False
+        mock_chat_msg_info.IsThread.return_value = False
+        mock_chat_msg_info.GetThreadID.return_value = ""
+
         def simulate_join_flow():
             nonlocal audio_request, image_request, speech_request
 
@@ -882,6 +897,9 @@ class TestZoomBot(TransactionTestCase):
 
             # Sleep to give audio output manager time to play the speech audio
             time.sleep(2.0)
+
+            # Simulate chat message received
+            adapter.on_chat_msg_notification_callback(mock_chat_msg_info, mock_chat_msg_info.GetContent())
 
             # Simulate meeting ended
             adapter.meeting_service_event.onMeetingStatusChangedCallback(
@@ -997,6 +1015,15 @@ class TestZoomBot(TransactionTestCase):
         utterance = self.recording.utterances.filter(failure_data__isnull=True).first()
         self.assertEqual(self.recording.utterances.count(), 1)
         self.assertIsNotNone(utterance.transcription)
+
+        # Verify chat message was processed
+        chat_messages = ChatMessage.objects.filter(bot=self.bot)
+        self.assertEqual(chat_messages.count(), 1)
+        chat_message = chat_messages.first()
+        self.assertEqual(chat_message.text, "Hello bot from Test User!")
+        self.assertEqual(chat_message.participant.full_name, "Test User")
+        self.assertEqual(chat_message.source_uuid, "test_chat_message_id_001")
+        self.assertEqual(chat_message.to, ChatMessageToOptions.ONLY_BOT)
 
         # Verify the bot adapter received the media
         controller.adapter.audio_raw_data_sender.send.assert_has_calls(

@@ -442,6 +442,31 @@ const DEVICE_OUTPUT_TYPE = {
     VIDEO: 2
 }
 
+// Chat message manager
+class ChatMessageManager {
+    constructor(ws) {
+        this.ws = ws;
+    }
+
+    handleChatMessage(chatMessageRaw) {
+        try {
+            const chatMessage = chatMessageRaw.chatMessage;
+            console.log('handleChatMessage', chatMessage);
+
+            this.ws.sendJson({
+                type: 'ChatMessage',
+                message_uuid: chatMessage.messageId,
+                participant_uuid: chatMessage.deviceId,
+                timestamp: Math.floor(chatMessage.timestamp / 1000),
+                text: chatMessage.chatMessageContent.text,
+            });
+        }
+        catch (error) {
+            console.error('Error in handleChatMessage', error);
+        }
+    }
+}
+
 // User manager
 class UserManager {
     constructor(ws) {
@@ -1204,6 +1229,7 @@ const captionManager = new CaptionManager(ws);
 const videoTrackManager = new VideoTrackManager(ws);
 const styleManager = new StyleManager();
 const receiverManager = new ReceiverManager();
+const chatMessageManager = new ChatMessageManager(ws);
 let rtpReceiverInterceptor = null;
 if (window.initialData.sendPerParticipantAudio) {
     rtpReceiverInterceptor = new RTCRtpReceiverInterceptor((receiver, result, ...args) => {
@@ -1215,6 +1241,7 @@ window.videoTrackManager = videoTrackManager;
 window.userManager = userManager;
 window.styleManager = styleManager;
 window.receiverManager = receiverManager;
+window.chatMessageManager = chatMessageManager;
 // Create decoders for all message types
 const messageDecoders = {};
 messageTypes.forEach(type => {
@@ -1261,7 +1288,9 @@ const handleCollectionEvent = (event) => {
 
   const chatMessageWrapper = collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper?.userInfoListWrapperAndChatWrapper?.chatMessageWrapper;
   if (chatMessageWrapper) {
-    console.log('chatMessageWrapper', chatMessageWrapper);
+    for (const chatMessage of chatMessageWrapper) {
+        window.chatMessageManager?.handleChatMessage(chatMessage);
+    }
   }
 
   //console.log('deviceOutputInfoList', JSON.stringify(collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper?.deviceInfoWrapper?.deviceOutputInfoList));

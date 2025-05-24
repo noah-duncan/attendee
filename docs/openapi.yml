@@ -119,6 +119,66 @@ paths:
           description: Bot details
         '404':
           description: Bot not found
+  /api/v1/bots/{object_id}/chat_messages:
+    get:
+      operationId: Get Chat Messages
+      description: If the meeting is still in progress, this returns the chat messages
+        sent so far. Results are paginated using cursor pagination.
+      summary: Get chat messages sent in the meeting
+      parameters:
+      - in: header
+        name: Authorization
+        schema:
+          type: string
+          default: Token YOUR_API_KEY_HERE
+        description: API key for authentication
+        required: true
+      - in: header
+        name: Content-Type
+        schema:
+          type: string
+          default: application/json
+        description: Should always be application/json
+        required: true
+      - in: query
+        name: cursor
+        schema:
+          type: string
+        description: Cursor for pagination
+      - in: path
+        name: object_id
+        schema:
+          type: string
+        description: Bot ID
+        required: true
+        examples:
+          BotIDExample:
+            value: bot_xxxxxxxxxxx
+            summary: Bot ID Example
+      - in: query
+        name: updated_after
+        schema:
+          type: string
+          format: ISO 8601 datetime
+        description: Only return chat messages created after this time. Useful when
+          polling for updates.
+        examples:
+          DateTimeExample:
+            value: '2024-01-18T12:34:56Z'
+            summary: DateTime Example
+      tags:
+      - Bots
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedChatMessageList'
+          description: List of chat messages
+        '404':
+          description: Bot not found
   /api/v1/bots/{object_id}/delete_data:
     post:
       operationId: Delete Bot Data
@@ -620,6 +680,35 @@ components:
       required:
       - data
       - type
+    ChatMessage:
+      type: object
+      properties:
+        object_id:
+          type: string
+        text:
+          type: string
+        timestamp:
+          type: integer
+        to:
+          type: string
+          readOnly: true
+        sender_name:
+          type: string
+        sender_uuid:
+          type: string
+        sender_user_uuid:
+          type: string
+          nullable: true
+        additional_data: {}
+      required:
+      - additional_data
+      - object_id
+      - sender_name
+      - sender_user_uuid
+      - sender_uuid
+      - text
+      - timestamp
+      - to
     CreateBotRequest:
       type: object
       properties:
@@ -791,6 +880,25 @@ components:
       required:
       - bot_name
       - meeting_url
+    PaginatedChatMessageList:
+      type: object
+      required:
+      - results
+      properties:
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?cursor=cD00ODY%3D"
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?cursor=cj0xJnA9NDg3
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
     Recording:
       type: object
       properties:

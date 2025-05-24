@@ -1486,3 +1486,31 @@ class WebhookDeliveryAttempt(models.Model):
             self.response_body_list = [response_body]
         else:
             self.response_body_list.append(response_body)
+
+
+class ChatMessageToOptions(models.IntegerChoices):
+    ONLY_BOT = 1, "only_bot"
+    EVERYONE = 2, "everyone"
+
+
+class ChatMessage(models.Model):
+    bot = models.ForeignKey(Bot, on_delete=models.CASCADE, related_name="chat_messages")
+    text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    participant = models.ForeignKey(Participant, on_delete=models.CASCADE, related_name="chat_messages")
+    to = models.IntegerField(choices=ChatMessageToOptions.choices, null=False)
+    timestamp = models.IntegerField()
+    additional_data = models.JSONField(null=False, default=dict)
+    object_id = models.CharField(max_length=32, unique=True, editable=False)
+
+    OBJECT_ID_PREFIX = "msg_"
+    object_id = models.CharField(max_length=32, unique=True, editable=False)
+    source_uuid = models.CharField(max_length=255, null=True, unique=True)
+
+    def save(self, *args, **kwargs):
+        if not self.object_id:
+            # Generate a random 16-character string
+            random_string = "".join(random.choices(string.ascii_letters + string.digits, k=16))
+            self.object_id = f"{self.OBJECT_ID_PREFIX}{random_string}"
+        super().save(*args, **kwargs)

@@ -23,6 +23,8 @@ from bots.models import (
     BotMediaRequestMediaTypes,
     BotMediaRequestStates,
     BotStates,
+    ChatMessage,
+    ChatMessageToOptions,
     Credentials,
     MeetingTypes,
     Participant,
@@ -80,6 +82,7 @@ class BotController:
             wants_any_video_frames_callback=None,
             add_mixed_audio_chunk_callback=None,
             upsert_caption_callback=self.closed_caption_manager.upsert_caption,
+            upsert_chat_message_callback=self.on_new_chat_message,
             automatic_leave_configuration=self.automatic_leave_configuration,
             add_encoded_mp4_chunk_callback=None,
             recording_view=self.bot_in_db.recording_view(),
@@ -102,6 +105,7 @@ class BotController:
             wants_any_video_frames_callback=None,
             add_mixed_audio_chunk_callback=None,
             upsert_caption_callback=self.closed_caption_manager.upsert_caption,
+            upsert_chat_message_callback=self.on_new_chat_message,
             automatic_leave_configuration=self.automatic_leave_configuration,
             add_encoded_mp4_chunk_callback=None,
             recording_view=self.bot_in_db.recording_view(),
@@ -137,6 +141,7 @@ class BotController:
             add_video_frame_callback=self.gstreamer_pipeline.on_new_video_frame,
             wants_any_video_frames_callback=self.gstreamer_pipeline.wants_any_video_frames,
             add_mixed_audio_chunk_callback=self.gstreamer_pipeline.on_mixed_audio_raw_data_received_callback,
+            upsert_chat_message_callback=self.on_new_chat_message,
             automatic_leave_configuration=self.automatic_leave_configuration,
             video_frame_size=self.bot_in_db.recording_dimensions(),
         )
@@ -738,6 +743,41 @@ class BotController:
 
         # Process the utterance immediately
         process_utterance.delay(utterance.id)
+        return
+
+    def on_new_chat_message(self, chat_message):
+        GLib.idle_add(lambda: self.upsert_chat_message(chat_message))
+
+    def upsert_chat_message(self, chat_message):
+        logger.info(f"Upserting chat message: {chat_message}")
+
+        participant = self.adapter.get_participant(chat_message["participant_uuid"])
+
+        if participant is None:
+            logger.warning(f"Warning: No participant found for chat message: {chat_message}")
+            return
+
+        participant, _ = Participant.objects.get_or_create(
+            bot=self.bot_in_db,
+            uuid=participant["participant_uuid"],
+            defaults={
+                "user_uuid": participant["participant_user_uuid"],
+                "full_name": participant["participant_full_name"],
+            },
+        )
+
+        ChatMessage.objects.update_or_create(
+            bot=self.bot_in_db,
+            source_uuid=chat_message["message_uuid"],
+            defaults={
+                "timestamp": chat_message["timestamp"],
+                "to": ChatMessageToOptions.ONLY_BOT if chat_message.get("to_bot") else ChatMessageToOptions.EVERYONE,
+                "text": chat_message["text"],
+                "participant": participant,
+                "additional_data": chat_message.get("additional_data", {}),
+            },
+        )
+
         return
 
     def on_message_from_adapter(self, message):

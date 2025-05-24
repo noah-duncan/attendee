@@ -46,6 +46,13 @@ class StyleManager {
             });
             console.log('Bot was removed from meeting, sent notification');
         }
+
+        // We need to open the chat window to be able to track messages
+        const chatButton = document.querySelector('button#chat-button');
+        if (chatButton && !this.chatButtonClicked) {
+            chatButton.click();
+            this.chatButtonClicked = true;
+        }
     }
 
     startSilenceDetection() {
@@ -629,6 +636,43 @@ The tracks have a streamId that looks like this mainVideo-39016. The SDP has tha
     }
 }
 
+
+class ChatMessageManager {
+    constructor(ws) {
+        this.ws = ws;
+    }
+
+    // The more sophisticated approach gets blocked by trusted html csp
+    stripHtml(html) {
+        return html.replace(/<[^>]*>/g, '');
+    }
+
+    handleChatMessage(chatMessage) {
+        try {
+            if (!chatMessage.clientMessageId)
+                return;
+            if (!chatMessage.from)
+                return;
+            if (!chatMessage.content)
+                return;
+            if (!chatMessage.originalArrivalTime)
+                return;
+
+            const timestamp_ms = new Date(chatMessage.originalArrivalTime).getTime();
+            this.ws.sendJson({
+                type: 'ChatMessage',
+                message_uuid: chatMessage.clientMessageId,
+                participant_uuid: chatMessage.from,
+                timestamp: Math.floor(timestamp_ms / 1000),
+                text: this.stripHtml(chatMessage.content),
+            });
+        }
+        catch (error) {
+            console.error('Error in handleChatMessage', error);
+        }
+    }
+}
+
 // User manager
 class UserManager {
     constructor(ws) {
@@ -1164,6 +1208,9 @@ const ws = new WebSocketClient();
 window.ws = ws;
 const userManager = new UserManager(ws);
 window.userManager = userManager;
+
+const chatMessageManager = new ChatMessageManager(ws);
+window.chatMessageManager = chatMessageManager;
 
 //const videoTrackManager = new VideoTrackManager(ws);
 const virtualStreamToPhysicalStreamMappingManager = new VirtualStreamToPhysicalStreamMappingManager();
@@ -2011,3 +2058,23 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
         throw err;
       });
   };
+
+(function () {
+    const _bind = Function.prototype.bind;
+    Function.prototype.bind = function (thisArg, ...args) {
+      if (this.name === 'onMessageReceived') {
+        const bound = _bind.apply(this, [thisArg, ...args]);
+        return function (...callArgs) {
+          const eventData = callArgs[0];
+          if (eventData?.data?.chatServiceBatchEvent?.[0]?.message)
+          {
+            const message = eventData.data.chatServiceBatchEvent[0].message;
+            realConsole?.log('chatMessage', message);
+            window.chatMessageManager?.handleChatMessage(message);
+          }
+          return bound.apply(this, callArgs);
+        };
+      }
+      return _bind.apply(this, [thisArg, ...args]);
+    };
+  })();
