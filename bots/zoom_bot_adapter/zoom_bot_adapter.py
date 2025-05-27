@@ -171,6 +171,10 @@ class ZoomBotAdapter(BotAdapter):
         logger.info(f"on_user_join_callback called. joined_user_ids = {joined_user_ids}")
         for joined_user_id in joined_user_ids:
             self.get_participant(joined_user_id)
+        all_participant_ids = self.participants_ctrl.GetParticipantsList()
+        if len(all_participant_ids) != 1:
+            self.only_one_participant_in_meeting_at = None
+        logger.info(f"participant in meeting: {all_participant_ids}, {self.only_one_participant_in_meeting_at}")
 
     def on_user_left_callback(self, left_user_ids, _):
         logger.info(f"on_user_left_callback called. left_user_ids = {left_user_ids}")
@@ -180,6 +184,7 @@ class ZoomBotAdapter(BotAdapter):
                 self.only_one_participant_in_meeting_at = time.time()
         else:
             self.only_one_participant_in_meeting_at = None
+        logger.info(f"participant in meeting: {all_participant_ids}, {self.only_one_participant_in_meeting_at}")
 
     def on_user_active_audio_change_callback(self, user_ids):
         if len(user_ids) == 0:
@@ -288,8 +293,8 @@ class ZoomBotAdapter(BotAdapter):
             self.video_input_manager.cleanup()
 
         logger.info("CleanUPSDK() called")
-        zoom.CleanUPSDK()
-        logger.info("CleanUPSDK() finished")
+        result = zoom.CleanUPSDK()
+        logger.info(f"CleanUPSDK() finished, result={result}")
         self.cleaned_up = True
 
     def init(self):
@@ -473,6 +478,10 @@ class ZoomBotAdapter(BotAdapter):
             self.send_image_timeout_id = None
             return False
 
+        if self.meeting_status == zoom.MEETING_STATUS_IN_WAITING_ROOM:
+            logger.info("Meeting in waiting room so skipping sending image")
+            return True
+
         send_video_frame_response = self.video_sender.sendVideoFrame(self.current_image_to_send, self.suggested_video_cap.width, self.suggested_video_cap.height, 0, zoom.FrameDataFormat_I420_FULL)
         if send_video_frame_response != zoom.SDKERR_SUCCESS:
             logger.info(f"send_current_image_to_zoom failed with send_video_frame_response = {send_video_frame_response}")
@@ -532,6 +541,10 @@ class ZoomBotAdapter(BotAdapter):
             logger.info("Requesting recording privilege.")
             return
 
+        if self.recording_permission_granted:
+            logger.info("Recording permission already granted so skipping start raw recording")
+            return
+
         start_raw_recording_result = self.recording_ctrl.StartRawRecording()
         if start_raw_recording_result != zoom.SDKERR_SUCCESS:
             logger.info("Start raw recording failed.")
@@ -559,9 +572,14 @@ class ZoomBotAdapter(BotAdapter):
         GLib.timeout_add(100, self.set_up_video_input_manager)
 
     def stop_raw_recording(self):
-        rec_ctrl = self.meeting_service.StopRawRecording()
-        if rec_ctrl.StopRawRecording() != zoom.SDKERR_SUCCESS:
-            raise Exception("Error with stop raw recording")
+        if self.recording_ctrl is None:
+            logger.error("recording_ctrl is None so cannot stop raw recording")
+            return
+
+        if self.recording_permission_granted:
+            status = self.recording_ctrl.StopRawRecording()
+            if status != zoom.SDKERR_SUCCESS:
+                logger.error(f"Error with stop raw recording, status = {status}")
 
     def leave(self):
         if self.meeting_service is None:
@@ -643,10 +661,23 @@ class ZoomBotAdapter(BotAdapter):
 
         if status == zoom.MEETING_STATUS_IN_WAITING_ROOM:
             self.send_message_callback({"message": self.Messages.BOT_PUT_IN_WAITING_ROOM})
+            # Sometimes SDK have strange callback sequance:
+            # 1. on_user_left_callback happen, GetParticipantsList return only host remain in meeting
+            # 2. meeting_status_changed happen, bot status change to MEETING_STATUS_IN_WAITING_ROOM
+            # In such case, it will cause bot auto leaving
+            if self.only_one_participant_in_meeting_at is not None:
+                logger.info("Strange callback sequance: on_user_left_callback happen, GetParticipantsList return only host remain in meeting")
+                self.only_one_participant_in_meeting_at = None
+
             GLib.timeout_add_seconds(self.automatic_leave_configuration.waiting_room_timeout_seconds, self.leave_meeting_if_still_in_waiting_room)
 
         if status == zoom.MEETING_STATUS_INMEETING:
-            self.send_message_callback({"message": self.Messages.BOT_JOINED_MEETING})
+            if not self.recording_permission_granted:
+                self.send_message_callback({"message": self.Messages.BOT_JOINED_MEETING})
+            else:
+                # We come from waiting room, so we need to start recording
+                self.recording_permission_granted = False
+                self.start_raw_recording()
 
         if status == zoom.MEETING_STATUS_ENDED:
             # We get the MEETING_STATUS_ENDED regardless of whether we initiated the leave or not

@@ -579,7 +579,11 @@ class BotEventManager:
             "to": BotStates.FATAL_ERROR,
         },
         BotEventTypes.BOT_PUT_IN_WAITING_ROOM: {
-            "from": BotStates.JOINING,
+            "from": [
+                BotStates.JOINING,
+                BotStates.JOINED_NOT_RECORDING,
+                BotStates.JOINED_RECORDING,
+            ],
             "to": BotStates.WAITING_ROOM,
         },
         BotEventTypes.BOT_JOINED_MEETING: {
@@ -587,7 +591,10 @@ class BotEventManager:
             "to": BotStates.JOINED_NOT_RECORDING,
         },
         BotEventTypes.BOT_RECORDING_PERMISSION_GRANTED: {
-            "from": BotStates.JOINED_NOT_RECORDING,
+            "from": [
+                BotStates.JOINED_NOT_RECORDING,
+                BotStates.WAITING_ROOM,
+            ],
             "to": BotStates.JOINED_RECORDING,
         },
         BotEventTypes.MEETING_ENDED: {
@@ -680,6 +687,14 @@ class BotEventManager:
             raise ValidationError(f"Expected exactly one pending recording for bot {bot.object_id} in state {BotStates.state_to_api_code(new_state)}, but found {pending_recordings.count()}")
         pending_recording = pending_recordings.first()
         RecordingManager.set_recording_in_progress(pending_recording)
+
+    @classmethod
+    def after_new_state_is_waiting_room(cls, bot: Bot, new_state=BotStates):
+        pending_recordings = bot.recordings.filter(state=RecordingStates.IN_PROGRESS)
+        if pending_recordings.count() != 1:
+            raise ValidationError(f"Expected exactly one pending recording for bot {bot.object_id} in state {BotStates.state_to_api_code(new_state)}, but found {pending_recordings.count()}")
+        pending_recording = pending_recordings.first()
+        RecordingManager.set_recording_not_started(pending_recording)
 
     # This method handles sets the state for recordings and credits for when the bot transitions to a post meeting state
     # It returns a dictionary of additional event metadata that should be added to the event
@@ -780,6 +795,10 @@ class BotEventManager:
                     # If we moved to the recording state
                     if new_state == BotStates.JOINED_RECORDING:
                         cls.after_new_state_is_joined_recording(bot=bot, new_state=new_state)
+
+                    # If we moved to the waiting room state
+                    if new_state == BotStates.WAITING_ROOM:
+                        cls.after_new_state_is_waiting_room(bot=bot, new_state=new_state)
 
                     # If we transitioned to a post meeting state
                     transitioned_to_post_meeting_state = cls.is_post_meeting_state(new_state) and not cls.is_post_meeting_state(old_state)
@@ -997,6 +1016,18 @@ class RecordingManager:
                 RecordingManager.set_recording_transcription_failed(recording, failure_data={"failure_reasons": failure_reasons})
             else:
                 RecordingManager.set_recording_transcription_complete(recording)
+
+    @classmethod
+    def set_recording_not_started(cls, recording: Recording):
+        recording.refresh_from_db()
+
+        if recording.state == RecordingStates.NOT_STARTED:
+            return
+        if recording.state != RecordingStates.IN_PROGRESS:
+            raise ValueError(f"Invalid state transition. Recording {recording.id} is in state {recording.get_state_display()}")
+
+        recording.state = RecordingStates.NOT_STARTED
+        recording.save()
 
     @classmethod
     def set_recording_in_progress(cls, recording: Recording):
