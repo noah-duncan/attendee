@@ -1822,6 +1822,24 @@ function turnOnCamera() {
     }
 }
 
+function turnOnMic() {
+    // Click microphone button to turn it on
+    const microphoneButton = document.querySelector('button[aria-label="Unmute mic"]');
+    if (microphoneButton) {
+        console.log("Clicking the microphone button to turn it on");
+        microphoneButton.click();
+    }
+}
+
+function turnOffMic() {
+    // Click microphone button to turn it on
+    const microphoneButton = document.querySelector('button[aria-label="Mute mic"]');
+    if (microphoneButton) {
+        console.log("Clicking the microphone button to turn it off");
+        microphoneButton.click();
+    }
+}
+
 function turnOnMicAndCamera() {
     // Click microphone button to turn it on
     const microphoneButton = document.querySelector('button[aria-label="Unmute mic"]');
@@ -2003,6 +2021,138 @@ class BotOutputManager {
             img.src = url;
         });
     }
+
+
+    initializeBotOutputAudioTrack() {
+        if (this.botOutputAudioTrack) {
+            return;
+        }
+
+        // Create AudioContext and nodes
+        this.audioContextForBotOutput = new AudioContext();
+        this.gainNode = this.audioContextForBotOutput.createGain();
+        this.destination = this.audioContextForBotOutput.createMediaStreamDestination();
+
+        // Set initial gain
+        this.gainNode.gain.value = 1.0;
+
+        // Connect gain node to both destinations
+        this.gainNode.connect(this.destination);
+        this.gainNode.connect(this.audioContextForBotOutput.destination);  // For local monitoring
+
+        this.botOutputAudioTrack = this.destination.stream.getAudioTracks()[0];
+        
+        // Initialize audio queue for continuous playback
+        this.audioQueue = [];
+        this.nextPlayTime = 0;
+        this.isPlaying = false;
+        this.sampleRate = 44100; // Default sample rate
+        this.numChannels = 1;    // Default channels
+        this.turnOffMicTimeout = null;
+    }
+
+    playPCMAudio(pcmData, sampleRate = 44100, numChannels = 1) {
+        turnOnMic();
+
+        // Make sure audio context is initialized
+        this.initializeBotOutputAudioTrack();
+        
+        // Update properties if they've changed
+        if (this.sampleRate !== sampleRate || this.numChannels !== numChannels) {
+            this.sampleRate = sampleRate;
+            this.numChannels = numChannels;
+        }
+        
+        // Convert Int16 PCM data to Float32 with proper scaling
+        let audioData;
+        if (pcmData instanceof Float32Array) {
+            audioData = pcmData;
+        } else {
+            // Create a Float32Array of the same length
+            audioData = new Float32Array(pcmData.length);
+            // Scale Int16 values (-32768 to 32767) to Float32 range (-1.0 to 1.0)
+            for (let i = 0; i < pcmData.length; i++) {
+                // Division by 32768.0 scales the range correctly
+                audioData[i] = pcmData[i] / 32768.0;
+            }
+        }
+        
+        // Add to queue with timing information
+        const chunk = {
+            data: audioData,
+            duration: audioData.length / (numChannels * sampleRate)
+        };
+        
+        this.audioQueue.push(chunk);
+        
+        // Start playing if not already
+        if (!this.isPlaying) {
+            this.processAudioQueue();
+        }
+    }
+    
+    processAudioQueue() {
+        if (this.audioQueue.length === 0) {
+            this.isPlaying = false;
+
+            if (this.turnOffMicTimeout) {
+                clearTimeout(this.turnOffMicTimeout);
+                this.turnOffMicTimeout = null;
+            }
+            
+            // Delay turning off the mic by 2 second and check if queue is still empty
+            this.turnOffMicTimeout = setTimeout(() => {
+                // Only turn off mic if the queue is still empty
+                if (this.audioQueue.length === 0)
+                    turnOffMic();
+            }, 2000);
+            
+            return;
+        }
+        
+        this.isPlaying = true;
+        
+        // Get current time and next play time
+        const currentTime = this.audioContextForBotOutput.currentTime;
+        this.nextPlayTime = Math.max(currentTime, this.nextPlayTime);
+        
+        // Get next chunk
+        const chunk = this.audioQueue.shift();
+        
+        // Create buffer for this chunk
+        const audioBuffer = this.audioContextForBotOutput.createBuffer(
+            this.numChannels,
+            chunk.data.length / this.numChannels,
+            this.sampleRate
+        );
+        
+        // Fill the buffer
+        if (this.numChannels === 1) {
+            const channelData = audioBuffer.getChannelData(0);
+            channelData.set(chunk.data);
+        } else {
+            for (let channel = 0; channel < this.numChannels; channel++) {
+                const channelData = audioBuffer.getChannelData(channel);
+                for (let i = 0; i < chunk.data.length / this.numChannels; i++) {
+                    channelData[i] = chunk.data[i * this.numChannels + channel];
+                }
+            }
+        }
+        
+        // Create source and schedule it
+        const source = this.audioContextForBotOutput.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(this.gainNode);
+        
+        // Schedule precisely
+        source.start(this.nextPlayTime);
+        this.nextPlayTime += chunk.duration;
+        
+        // Schedule the next chunk processing
+        const timeUntilNextProcess = (this.nextPlayTime - currentTime) * 1000 * 0.8;
+        setTimeout(() => this.processAudioQueue(), Math.max(0, timeUntilNextProcess));
+    }
+
 }
 
 const botOutputManager = new BotOutputManager();
@@ -2011,7 +2161,7 @@ window.botOutputManager = botOutputManager;
 navigator.mediaDevices.getUserMedia = function(constraints) {
     return _getUserMedia.call(navigator.mediaDevices, constraints)
       .then(originalStream => {
-        console.log("Intercepted getUserMedia:", constraints);
+        realConsole?.log("Intercepted getUserMedia:", constraints);
   
         // Stop any original tracks so we don't actually capture real mic/cam
         originalStream.getTracks().forEach(t => t.stop());
@@ -2028,40 +2178,14 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
         */
 
         if (constraints.video && botOutputManager.botOutputCanvasElementCaptureStream) {
-            console.log("Adding canvas track", botOutputManager.botOutputCanvasElementCaptureStream.getVideoTracks()[0]);
+            realConsole?.log("Adding canvas track", botOutputManager.botOutputCanvasElementCaptureStream.getVideoTracks()[0]);
             newStream.addTrack(botOutputManager.botOutputCanvasElementCaptureStream.getVideoTracks()[0]);
         }
 
-        // Audio sending not supported yet
-        /*
-        // If audio is requested, add our fake audio track
         if (constraints.audio) {  // Only create once
-            if (!audioContextForBotOutput) {
-                // Create AudioContext and nodes
-                audioContextForBotOutput = new AudioContext();
-                gainNode = audioContextForBotOutput.createGain();
-                destination = audioContextForBotOutput.createMediaStreamDestination();
-
-                // Set initial gain
-                gainNode.gain.value = 1.0;
-
-                // Connect gain node to both destinations
-                gainNode.connect(destination);
-                gainNode.connect(audioContextForBotOutput.destination);  // For local monitoring
-
-                botOutputAudioTrack = destination.stream.getAudioTracks()[0];
-            }
-            newStream.addTrack(botOutputAudioTrack);
-        }
-        */
-
-        // Video sending not supported yet
-        /*
-        if (botOutputVideoElement && audioContextForBotOutput && !videoSource) {
-            videoSource = audioContextForBotOutput.createMediaElementSource(botOutputVideoElement);
-            videoSource.connect(gainNode);
-        }
-        */
+            botOutputManager.initializeBotOutputAudioTrack();
+            newStream.addTrack(botOutputManager.botOutputAudioTrack);
+        }  
   
         return newStream;
       })
