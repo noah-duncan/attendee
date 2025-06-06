@@ -102,6 +102,52 @@ class TeamsUIMethods:
         logger.info("Clicking the closed captions button...")
         self.click_element(closed_captions_button, "closed_captions_button")
 
+    def set_caption_language_to_italian(self):
+        """Set the caption language to Italian after captions have been enabled"""
+        logger.info("Setting caption language to Italian...")
+        
+        # Step 1: Click the captions settings menu trigger button
+        logger.info("Waiting for the captions settings menu trigger button...")
+        captions_settings_trigger = self.locate_element(
+            step="captions_settings_trigger", 
+            condition=EC.presence_of_element_located((By.ID, "captions-settings-menu-trigger-button-non-overflow")), 
+            wait_time_seconds=10
+        )
+        logger.info("Clicking the captions settings menu trigger button...")
+        self.click_element(captions_settings_trigger, "captions_settings_trigger")
+        
+        # Step 2: Click the language settings button
+        logger.info("Waiting for the language settings button...")
+        language_settings_button = self.locate_element(
+            step="language_settings_button", 
+            condition=EC.presence_of_element_located((By.CSS_SELECTOR, '[data-tid="closed-captions-settings-submenu-language-settings-button"]')), 
+            wait_time_seconds=10
+        )
+        logger.info("Clicking the language settings button...")
+        self.click_element(language_settings_button, "language_settings_button")
+        
+        # Step 3: Click the spoken languages button
+        logger.info("Waiting for the spoken languages button...")
+        spoken_languages_button = self.locate_element(
+            step="spoken_languages_button", 
+            condition=EC.presence_of_element_located((By.ID, "callingCaptions-spokenLanguages")), 
+            wait_time_seconds=10
+        )
+        logger.info("Clicking the spoken languages button...")
+        self.click_element(spoken_languages_button, "spoken_languages_button")
+        
+        # Step 4: Select Italian language option
+        logger.info("Waiting for the Italian language option...")
+        italian_option = self.locate_element(
+            step="italian_language_option", 
+            condition=EC.presence_of_element_located((By.XPATH, '//div[@class="fui-Option" and contains(text(), "Italiano (Italia)")]')), 
+            wait_time_seconds=10
+        )
+        logger.info("Clicking the Italian language option...")
+        self.click_element(italian_option, "italian_language_option")
+        
+        logger.info("Caption language successfully set to Italian")
+
     def check_if_waiting_room_timeout_exceeded(self, waiting_room_timeout_started_at, step):
         waiting_room_timeout_exceeded = time.time() - waiting_room_timeout_started_at > self.automatic_leave_configuration.waiting_room_timeout_seconds
         if waiting_room_timeout_exceeded:
@@ -201,6 +247,9 @@ class TeamsUIMethods:
 
         # Click the captions button
         self.click_captions_button()
+
+        # Set caption language to Italian
+        self.set_caption_language_to_italian()
 
         # Select speaker view
         self.select_speaker_view()
