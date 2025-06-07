@@ -253,6 +253,7 @@ class DeepgramProviderTest(TransactionTestCase):
             {
                 "reason": TranscriptionFailureReasons.TRANSCRIPTION_REQUEST_FAILED,
                 "error_code": "SOME_OTHER",
+                "error_json": {"err_code": "SOME_OTHER"},
             },
         )
 

@@ -109,6 +109,20 @@ class BotImageSerializer(serializers.Serializer):
                         "type": "string",
                         "description": "The URL to send the transcriptions to. If used, the transcriptions will be sent directly from Deepgram to your server so you will not be able to access them via the Attendee API. See here for details: https://developers.deepgram.com/docs/callback",
                     },
+                    "keyterms": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Improve recall of key terms or phrases in the transcript. This feature is only available for the nova-3 model in english, so you must set the language to 'en'. See here for details: https://developers.deepgram.com/docs/keyterm",
+                    },
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Improve recall of key terms or phrases in the transcript. This feature is only available for the nova-2 model. See here for details: https://developers.deepgram.com/docs/keywords",
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "The model to use for transcription. Defaults to 'nova-3' if not specified, which is the recommended model for most use cases. See here for details: https://developers.deepgram.com/docs/models-languages-overview",
+                    },
                 },
                 "additionalProperties": False,
             },
@@ -145,6 +159,10 @@ class BotImageSerializer(serializers.Serializer):
                     "prompt": {
                         "type": "string",
                         "description": "Optional prompt to use for the OpenAI transcription",
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "The language to use for transcription. See here in the 'Set 1' column for available language codes: https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes. This parameter is optional but if you know the language in advance, setting it will improve accuracy.",
                     },
                 },
                 "required": ["model"],
@@ -353,6 +371,9 @@ class CreateBotSerializer(serializers.Serializer):
                     },
                     "detect_language": {"type": "boolean"},
                     "callback": {"type": "string"},
+                    "keyterms": {"type": "array", "items": {"type": "string"}},
+                    "keywords": {"type": "array", "items": {"type": "string"}},
+                    "model": {"type": "string"},
                 },
                 "additionalProperties": False,
             },
@@ -376,6 +397,10 @@ class CreateBotSerializer(serializers.Serializer):
                     "prompt": {
                         "type": "string",
                         "description": "Optional prompt to use for the OpenAI transcription",
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "The language to use for transcription. See here in the 'Set 1' column for available language codes: https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes. This parameter is optional but if you know the language in advance, setting it will improve accuracy.",
                     },
                 },
                 "required": ["model"],

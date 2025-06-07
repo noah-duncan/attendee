@@ -170,9 +170,29 @@
                                             </div>
                                         </div>
                                     {% empty %}
-                                        <div class="alert alert-info">No transcripts available.</div>
+                                        {% if not recording.failed_utterances %}
+                                            <div class="alert alert-info">No transcripts available.</div>
+                                        {% endif %}
                                     {% endfor %}
+
+                                    {% if recording.failed_utterances %}
+                                        <div class="failed-utterances-column">
+                                            <h5>Transcription errors</h5>
+                                            <div class="alert alert-danger" role="alert">
+                                                {% for failed_utterance in recording.failed_utterances %}
+                                                    <dl class="row mb-0">
+                                                    {% for key, value in failed_utterance.failure_data.items %}
+                                                        <dt class="col-sm-3">{{ key }}</dt>
+                                                        <dd class="col-sm-9"><code>{{ value }}</code></dd>
+                                                    {% endfor %}
+                                                    </dl>
+                                                    {% if not forloop.last %}<hr>{% endif %}
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    {% endif %}
                                 </div>
+                                
                                 <div class="video-column">
                                     <video preload="auto" width="100%" controls id="recording-video">
                                         <source src="{{ recording.url }}">

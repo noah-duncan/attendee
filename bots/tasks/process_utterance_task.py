@@ -211,6 +211,8 @@ def get_transcription_via_deepgram(utterance):
         smart_format=True,
         language=recording.bot.deepgram_language(),
         detect_language=recording.bot.deepgram_detect_language(),
+        keyterm=recording.bot.deepgram_keyterms(),
+        keywords=recording.bot.deepgram_keywords(),
         encoding="linear16",  # for 16-bit PCM
         sample_rate=utterance.sample_rate,
     )
@@ -231,7 +233,7 @@ def get_transcription_via_deepgram(utterance):
         original_error_json = json.loads(e.original_error)
         if original_error_json.get("err_code") == "INVALID_AUTH":
             return None, {"reason": TranscriptionFailureReasons.CREDENTIALS_INVALID}
-        return None, {"reason": TranscriptionFailureReasons.TRANSCRIPTION_REQUEST_FAILED, "error_code": original_error_json.get("err_code")}
+        return None, {"reason": TranscriptionFailureReasons.TRANSCRIPTION_REQUEST_FAILED, "error_code": original_error_json.get("err_code"), "error_json": original_error_json}
 
     logger.info(f"Deepgram transcription complete with model {deepgram_model}")
     return json.loads(response.results.channels[0].alternatives[0].to_json()), None
@@ -258,6 +260,8 @@ def get_transcription_via_openai(utterance):
     files = {"file": ("file.mp3", payload_mp3, "audio/mpeg"), "model": (None, recording.bot.openai_transcription_model())}
     if recording.bot.openai_transcription_prompt():
         files["prompt"] = (None, recording.bot.openai_transcription_prompt())
+    if recording.bot.openai_transcription_language():
+        files["language"] = (None, recording.bot.openai_transcription_language())
     response = requests.post(url, headers=headers, files=files)
 
     if response.status_code == 401:
