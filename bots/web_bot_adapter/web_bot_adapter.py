@@ -311,6 +311,15 @@ class WebBotAdapter(BotAdapter):
         self.send_message_callback({"message": self.Messages.MEETING_NOT_FOUND})
 
     def send_debug_screenshot_message(self, step, exception, inner_exception):
+        """
+        Send a debug screenshot message to the callback function.
+
+        @param step: The step where the error occurred.
+        @param exception: The exception that occurred.
+        @param inner_exception: The inner exception that occurred.
+
+        @return: None
+        """
         current_time = datetime.datetime.now()
         timestamp = current_time.strftime("%Y%m%d_%H%M%S")
         screenshot_path = f"/tmp/ui_element_not_found_{timestamp}.png"
@@ -490,6 +499,11 @@ class WebBotAdapter(BotAdapter):
                 logger.info(f"Failed to join meeting and the {e.__class__.__name__} exception is retryable so retrying")
 
                 num_retries += 1
+
+            except Exception as e:
+                logger.info(f"Failed to join meeting and the {e.__class__.__name__} exception is not retryable so returning")
+                self.send_debug_screenshot_message(step="unknown", exception=e, inner_exception="None")
+                return
 
             sleep(1)
 

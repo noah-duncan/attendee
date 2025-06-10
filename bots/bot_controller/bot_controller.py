@@ -253,11 +253,14 @@ class BotController:
         def terminate_worker():
             import time
 
-            time.sleep(600)
+            # Wait for 600 seconds before force terminating the worker
+            hard_timeout = 600
+            time.sleep(hard_timeout)
+
             if normal_quitting_process_worked:
                 logger.info("Normal quitting process worked, not force terminating worker")
                 return
-            logger.info("Terminating worker with hard timeout...")
+            logger.info(f"Waited {hard_timeout} seconds for worker to complete. Terminating worker with hard timeout...")
             os.kill(os.getpid(), signal.SIGKILL)  # Force terminate the worker process
 
         termination_thread = threading.Thread(target=terminate_worker, daemon=True)
