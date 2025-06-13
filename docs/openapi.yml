@@ -928,6 +928,18 @@ components:
                 language_detection:
                   type: boolean
                   description: Whether to automatically detect the spoken language.
+                word_boost:
+                  type: array
+                  items:
+                    type: string
+                  description: 'List of words or phrases to boost in the transcript. See https://www.assemblyai.com/docs/Transcribe%20Audio/custom-vocabulary for details.'
+                boost_param:
+                  type: string
+                  enum:
+                    - low
+                    - default
+                    - high
+                  description: 'How much to boost the provided words/phrases. See https://www.assemblyai.com/docs/Transcribe%20Audio/custom-vocabulary for details.'
               additionalProperties: false
           required: []
           description: 'The transcription settings for the bot, e.g. {''deepgram'':

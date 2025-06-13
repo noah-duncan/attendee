@@ -672,3 +672,59 @@ class AssemblyAIProviderTest(TransactionTestCase):
             self.assertEqual(failure["reason"], TranscriptionFailureReasons.TIMED_OUT)
             # The code has max_retries = 120
             self.assertEqual(m_get.call_count, 120)
+
+    def test_word_boost_and_boost_param_included(self):
+        """Test that word_boost and boost_param are included in the AssemblyAI request if set in settings."""
+        self.bot.settings = {
+            "transcription_settings": {
+                "assembly_ai": {
+                    "word_boost": ["aws", "azure", "google cloud"],
+                    "boost_param": "high",
+                }
+            }
+        }
+        self.bot.save()
+        with (
+            self._patch_creds(),
+            mock.patch("bots.tasks.process_utterance_task.pcm_to_mp3", return_value=b"mp3"),
+            mock.patch("bots.tasks.process_utterance_task.requests.post") as m_post,
+            mock.patch("bots.tasks.process_utterance_task.requests.get") as m_get,
+            mock.patch("bots.tasks.process_utterance_task.requests.delete") as m_delete,
+        ):
+            # 1. Mock upload response
+            upload_response = mock.Mock(status_code=200)
+            upload_response.json.return_value = {"upload_url": "https://cdn.assemblyai.com/upload/123"}
+
+            # 2. Mock transcript creation response
+            transcript_response = mock.Mock(status_code=200)
+            transcript_response.json.return_value = {"id": "transcript-abc"}
+
+            m_post.side_effect = [upload_response, transcript_response]
+
+            # 3. Mock polling responses
+            done_response = mock.Mock(status_code=200)
+            done_response.json.return_value = {
+                "status": "completed",
+                "text": "hello assembly",
+                "words": [],
+            }
+            m_get.return_value = done_response
+
+            # 4. Mock delete response
+            delete_response = mock.Mock(status_code=200)
+            m_delete.return_value = delete_response
+
+            transcript, failure = get_transcription_via_assemblyai(self.utterance)
+
+            self.assertIsNone(failure)
+            self.assertEqual(transcript["transcript"], "hello assembly")
+
+            # Check that the transcript creation request included word_boost and boost_param
+            # The second call to requests.post is the transcript creation
+            transcript_call = m_post.call_args_list[1]
+            _, kwargs = transcript_call
+            data = kwargs["json"]
+            self.assertIn("word_boost", data)
+            self.assertEqual(data["word_boost"], ["aws", "azure", "google cloud"])
+            self.assertIn("boost_param", data)
+            self.assertEqual(data["boost_param"], "high")
