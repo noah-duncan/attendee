@@ -527,6 +527,7 @@ class CreateBotView(LoginRequiredMixin, ProjectUrlContextMixin, View):
             data = {
                 "meeting_url": request.POST.get("meeting_url"),
                 "bot_name": request.POST.get("bot_name") or "Meeting Bot",
+                "audio_websocket_url": request.POST.get("audio_websocket_url"),
             }
 
             bot, error = create_bot(data=data, source=BotCreationSource.DASHBOARD, project=project)

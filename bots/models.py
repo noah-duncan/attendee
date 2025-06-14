@@ -320,6 +320,13 @@ class Bot(models.Model):
 
         return f"{destination_url}/{stream_key}"
 
+    def websocket_audio_url(self):
+        """Websocket URL is used to send/receive audio chunks to/from the bot"""
+        websocket_settings = self.settings.get("websocket_settings", {})
+        if websocket_settings is None:
+            return None
+        return websocket_settings.get("audio_url", None)
+
     def recording_format(self):
         recording_settings = self.settings.get("recording_settings", {})
         if recording_settings is None:
@@ -500,6 +507,11 @@ class BotEventTypes(models.IntegerChoices):
             cls.DATA_DELETED: "data_deleted",
         }
         return mapping.get(value)
+
+
+class RealtimeBotEventTypes(models.IntegerChoices):
+    AUDIO_CHUNK = 1, "Audio chunk"
+    VIDEO_CHUNK = 2, "Video chunk"
 
 
 class BotEventSubTypes(models.IntegerChoices):

@@ -8,6 +8,7 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_serializer,
 )
+from django.core.validators import URLValidator
 from rest_framework import serializers
 
 from .bot_controller.automatic_leave_configuration import AutomaticLeaveConfiguration
@@ -355,6 +356,12 @@ class CreateBotSerializer(serializers.Serializer):
     meeting_url = serializers.CharField(help_text="The URL of the meeting to join, e.g. https://zoom.us/j/123?pwd=456")
     bot_name = serializers.CharField(help_text="The name of the bot to create, e.g. 'My Bot'")
     bot_image = BotImageSerializer(help_text="The image for the bot", required=False, default=None)
+    audio_websocket_url = serializers.CharField(
+        validators=[URLValidator(schemes=["ws", "wss"], message="Enter a valid websocket URL")],
+        help_text="The URL of the audio websocket to use for the bot. It must start with ws:// or wss://.",
+        required=False,
+        default=None
+    )
     metadata = MetadataJSONField(help_text="JSON object containing metadata to associate with the bot", required=False, default=None)
     bot_chat_message = BotChatMessageRequestSerializer(help_text="The chat message the bot sends after it joins the meeting", required=False, default=None)
 

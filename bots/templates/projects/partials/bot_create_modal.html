@@ -15,6 +15,12 @@
                         <input type="url" class="form-control" id="id_meeting_url" name="meeting_url" required>
                         <div class="form-text">The URL of the meeting to join (Zoom, Google Meet, MS Teams)</div>
                     </div>
+
+                    <div class="mb-3">
+                        <label for="id_audio_websocket_url" class="form-label">Audio Websocket URL</label>
+                        <input type="url" class="form-control" id="id_audio_websocket_url" name="audio_websocket_url"a>
+                        <div class="form-text">The URL of the audio websocket to use for the bot. It must start with <code>ws://</code> or <code>wss://</code>.</div>
+                    </div>
                     
                     <div class="mb-3">
                         <label for="id_bot_name" class="form-label">Bot Name</label>
@@ -128,6 +134,7 @@
     function initializeCodeListener() {
         // Get form fields
         const meetingUrlField = document.getElementById('id_meeting_url');
+        const audioWebsocketUrlField = document.getElementById('id_audio_websocket_url');
         const botNameField = document.getElementById('id_bot_name');
         const codeBlock = document.getElementById('apiCodeExample');
         
@@ -137,6 +144,23 @@
                 const meetingUrl = meetingUrlField.value || 'https://zoom.us/j/123?pwd=456';
                 const botName = botNameField.value || 'My Bot';
                 const currentHost = window.location.origin;
+                const audioWebsocketUrl = audioWebsocketUrlField.value || '';
+
+                const data = {
+                    "meeting_url": meetingUrl,
+                    "bot_name": botName,
+                }
+
+                if (audioWebsocketUrl) {
+                    data.audio_websocket_url = audioWebsocketUrl;
+                }
+
+                const dataStringJSON = (
+                    JSON.stringify(data, null, 2)
+                        .replaceAll(/^/gm, '  ')
+                        .trimStart()
+                );
+
                 
                 // Create properly formatted curl command  
                 const lines = [
@@ -144,10 +168,7 @@
                     `  --request POST \\`,
                     `  --header 'Authorization: Token YOUR_API_KEY_HERE' \\`,
                     `  --header 'Content-Type: application/json' \\`,
-                    `  --data '{`,
-                    `    "meeting_url": "${meetingUrl}",`,
-                    `    "bot_name": "${botName}"`,
-                    `  }'`
+                    `  --data '${dataStringJSON}'`
                 ];
                 
                 const curlCommand = lines.join('\n');
@@ -159,6 +180,7 @@
             // Add event listeners to form fields
             meetingUrlField.addEventListener('input', updateCurlCommand);
             botNameField.addEventListener('input', updateCurlCommand);
+            audioWebsocketUrlField.addEventListener('input', updateCurlCommand);
             
             // Set initial value with proper formatting
             updateCurlCommand();

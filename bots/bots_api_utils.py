@@ -145,6 +145,7 @@ def create_bot(data: dict, source: BotCreationSource, project: Project) -> tuple
     bot_image = serializer.validated_data["bot_image"]
     bot_chat_message = serializer.validated_data["bot_chat_message"]
     metadata = serializer.validated_data["metadata"]
+    audio_websocket_url = serializer.validated_data["audio_websocket_url"]
 
     settings = {
         "transcription_settings": transcription_settings,
@@ -153,6 +154,9 @@ def create_bot(data: dict, source: BotCreationSource, project: Project) -> tuple
         "debug_settings": debug_settings,
         "automatic_leave_settings": automatic_leave_settings,
     }
+
+    if audio_websocket_url:
+        settings["websocket_settings"] = { "audio_url": audio_websocket_url }
 
     with transaction.atomic():
         bot = Bot.objects.create(

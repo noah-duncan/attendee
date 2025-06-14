@@ -10,17 +10,16 @@
     <a href="https://join.slack.com/t/attendeecommu-rff8300/shared_invite/zt-2uhpam6p2-ZzLAoVrljbL2UEjqdSHrgQ">Slack</a>
 </p>
 
-
-Attendee is an open source API for managing meeting bots on platforms like Zoom or Google Meet. Bring meeting transcripts and recordings into your product in days instead of months. 
+Attendee is an open source API for managing meeting bots on platforms like Zoom or Google Meet. Bring meeting transcripts and recordings into your product in days instead of months.
 
 See a [quick demo of the API](https://www.loom.com/embed/b738d02aabf84f489f0bfbadf71605e3?sid=ea605ea9-8961-4cc3-9ba9-10b7dbbb8034).
 
 ## Getting started
 
-Sign up for free on our hosted instance [here](https://app.attendee.dev/accounts/signup/). 
+Sign up for free on our hosted instance [here](https://app.attendee.dev/accounts/signup/).
 
 Interested in using Attendee at your company? Schedule a call [here](https://calendly.com/noah-attendee/30min). By self-hosting Attendee you can reduce costs by 10x compared to closed source vendors.
- 
+
 ## Self hosting
 
 Attendee is designed for convenient self-hosting. It runs as a Django app in a single Docker image. The only external services needed are Postgres and Redis. Directions for running locally in development mode [here](#running-in-development-mode).
@@ -36,38 +35,42 @@ Attendee abstracts away this complexity into a single developer friendly REST AP
 ## Calling the API
 
 Join a meeting with a POST request to `/bots`:
+
 ```
 curl -X POST https://app.attendee.dev/api/v1/bots \
 -H 'Authorization: Token <YOUR_API_KEY>' \
 -H 'Content-Type: application/json' \
 -d '{"meeting_url": "https://us05web.zoom.us/j/84315220467?pwd=9M1SQg2Pu2l0cB078uz6AHeWelSK19.1", "bot_name": "My Bot"}'
 ```
+
 Response:
-```{"id":"bot_3hfP0PXEsNinIZmh","meeting_url":"https://us05web.zoom.us/j/4849920355?pwd=aTBpNz760UTEBwUT2mQFtdXbl3SS3i.1","state":"joining","transcription_state":"not_started"}```
+`{"id":"bot_3hfP0PXEsNinIZmh","meeting_url":"https://us05web.zoom.us/j/4849920355?pwd=aTBpNz760UTEBwUT2mQFtdXbl3SS3i.1","state":"joining","transcription_state":"not_started"}`
 
-The API will respond with an object that represents your bot's state in the meeting. 
-
-
+The API will respond with an object that represents your bot's state in the meeting.
 
 Make a GET request to `/bots/<id>` to poll the bot:
+
 ```
 curl -X GET https://app.attendee.dev/api/v1/bots/bot_3hfP0PXEsNinIZmh \
 -H 'Authorization: Token <YOUR_API_KEY>' \
 -H 'Content-Type: application/json'
 ```
-Response: 
-```{"id":"bot_3hfP0PXEsNinIZmh","meeting_url":"https://us05web.zoom.us/j/88669088234?pwd=AheaMumvS4qxh6UuDtSOYTpnQ1ZbAS.1","state":"ended","transcription_state":"complete"}```
+
+Response:
+`{"id":"bot_3hfP0PXEsNinIZmh","meeting_url":"https://us05web.zoom.us/j/88669088234?pwd=AheaMumvS4qxh6UuDtSOYTpnQ1ZbAS.1","state":"ended","transcription_state":"complete"}`
 
 When the endpoint returns a state of `ended`, it means the meeting has ended. When the `transcription_state` is `complete` it means the meeting recording has been transcribed.
 
-
 Once the meeting has ended and the transcript is ready make a GET request to `/bots/<id>/transcript` to retrieve the meeting transcripts:
+
 ```
 curl -X GET https://app.attendee.dev/api/v1/bots/bot_3hfP0PXEsNinIZmh/transcript \
 -H 'Authorization: Token mpc67dedUlzEDXfNGZKyC30t6cA11TYh' \
 -H 'Content-Type: application/json'
 ```
+
 Response:
+
 ```
 [{
 "speaker_name":"Noah Duncan",
@@ -76,6 +79,7 @@ Response:
 "transcription":"You can totally record this, buddy. You can totally record this. Go for it, man."
 },...]
 ```
+
 You can also query this endpoint while the meeting is happening to retrieve partial transcripts.
 
 ## Prerequisites
@@ -97,7 +101,7 @@ We are rapidly adding features to Attendee. If the API is missing something you 
 ## Obtaining Zoom OAuth Credentials
 
 - Navigate to [Zoom Marketplace](https://marketplace.zoom.us/) and register/log into your
-developer account.
+  developer account.
 - Click the "Develop" button at the top-right, then click 'Build App' and choose "General App".
 - Copy the Client ID and Client Secret from the 'App Credentials' section
 - Go to the Embed tab on the left navigation bar under Features, then select the Meeting SDK toggle.
@@ -116,13 +120,11 @@ For more details, follow [this guide](https://developers.zoom.us/docs/meeting-sd
 - Paste the link into your browser to confirm your account.
 - You should now be able to log in, input your credentials and obtain an API key. API calls should be directed to http://localhost:8000 instead of https://app.attendee.dev.
 
-
-## Contribute 
+## Contribute
 
 Attendee is open source. The best way to contribute is to open an issue or join the [Slack Community](https://join.slack.com/t/attendeecommu-rff8300/shared_invite/zt-2uhpam6p2-ZzLAoVrljbL2UEjqdSHrgQ) and let us know what you want to build.
 
 See CONTRIBUTING.md for detailed instructions on how to contribute to Attendee.
-
 
 ## Roadmap
 
@@ -131,13 +133,13 @@ See CONTRIBUTING.md for detailed instructions on how to contribute to Attendee.
 - [x] API Reference
 - [x] Audio input / output
 - [x] Video input / output
-- [x] Custom bot image 
+- [x] Custom bot image
 - [x] Google Meet support
 - [x] Speech support
 - [x] Automatically leave meetings
 - [x] Microsoft Teams support
 - [x] Webhooks for state changes
-- [ ] Audio input / output via websockets
+- [x] Audio input / output via websockets
 - [ ] [ZAK token](https://developers.zoom.us/docs/meeting-sdk/auth/#start-meetings-and-webinars-with-a-zoom-users-zak-token) and [Join token](https://developers.zoom.us/docs/api/meetings/#tag/meetings/GET/meetings/{meetingId}/jointoken/local_recording) support
 - [ ] Scheduled meetings
 

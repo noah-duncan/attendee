@@ -533,7 +533,8 @@ class ZoomBotAdapter(BotAdapter):
         self.add_audio_chunk_callback(node_id, current_time, data.GetBuffer())
 
     def add_mixed_audio_chunk_convert_to_bytes(self, data):
-        self.add_mixed_audio_chunk_callback(data.GetBuffer())
+        timestamp = datetime.now().timestamp()
+        self.add_mixed_audio_chunk_callback(chunk=data.GetBuffer(), sample_rate=data.GetSampleRate(), num_channels=data.GetChannelNum(), timestamp=timestamp)
 
     def start_raw_recording(self):
         self.recording_ctrl = self.meeting_service.GetMeetingRecordingController()
