@@ -70,6 +70,11 @@ RUN apt-get update && apt-get install -y xterm
 # Install python dependencies
 RUN pip install pyjwt cython gdown deepgram-sdk python-dotenv
 
+# Install software-properties-common
+RUN apt-get update && apt-get install -y software-properties-common
+# Install backports and ffmpeg4
+RUN add-apt-repository -y ppa:savoury1/backports && add-apt-repository -y ppa:savoury1/ffmpeg4 && apt update
+
 # Install gstreamer
 RUN apt-get install -y gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgirepository1.0-dev --fix-missing
 

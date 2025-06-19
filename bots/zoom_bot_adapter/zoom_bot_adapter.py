@@ -12,6 +12,7 @@ import zoom_meeting_sdk as zoom
 from bots.bot_adapter import BotAdapter
 from bots.utils import png_to_yuv420_frame, scale_i420
 
+from .mp4_demuxer import MP4Demuxer
 from .video_input_manager import VideoInputManager
 
 gi.require_version("GLib", "2.0")
@@ -166,6 +167,8 @@ class ZoomBotAdapter(BotAdapter):
         self.meeting_status = None
 
         self.suggested_video_cap = None
+
+        self.video_output_manager = None
 
     def on_user_join_callback(self, joined_user_ids, _):
         logger.info(f"on_user_join_callback called. joined_user_ids = {joined_user_ids}")
@@ -491,6 +494,22 @@ class ZoomBotAdapter(BotAdapter):
 
         return True
 
+    def send_video_frame_to_zoom(self, yuv420_image_bytes, original_width, original_height):
+        if self.requested_leave or self.cleaned_up or (not self.suggested_video_cap):
+            return False
+
+        # Only scale if the dimensions are different
+        if original_width != self.suggested_video_cap.width or original_height != self.suggested_video_cap.height:
+            yuv420_image_bytes_scaled = scale_i420(yuv420_image_bytes, (original_width, original_height), (self.suggested_video_cap.width, self.suggested_video_cap.height))
+            logger.info(f"Sending scaled video frame to Zoom. Original dimensions: {original_width}x{original_height}, Suggested dimensions: {self.suggested_video_cap.width}x{self.suggested_video_cap.height}")
+        else:
+            yuv420_image_bytes_scaled = yuv420_image_bytes
+
+        send_video_frame_response = self.video_sender.sendVideoFrame(yuv420_image_bytes_scaled, self.suggested_video_cap.width, self.suggested_video_cap.height, 0, zoom.FrameDataFormat_I420_FULL)
+        if send_video_frame_response != zoom.SDKERR_SUCCESS:
+            logger.info(f"send_video_frame_to_zoom failed with send_video_frame_response = {send_video_frame_response}")
+        return True
+
     def set_up_bot_audio_input(self):
         if self.audio_helper is None:
             self.audio_helper = zoom.GetAudioRawdataHelper()
@@ -752,11 +771,44 @@ class ZoomBotAdapter(BotAdapter):
                 return
 
     def is_sent_video_still_playing(self):
-        return False
+        if not self.video_output_manager:
+            return False
+        return self.video_output_manager.is_playing()
 
     def send_video(self, video_url):
-        logger.info(f"send_video called with video_url = {video_url}. This is not supported for zoom")
+        logger.info(f"send_video called with video_url = {video_url}")
+        if self.video_output_manager:
+            self.video_output_manager.stop()
+            self.video_output_manager = None
+
+        if self.suggested_video_cap is None:
+            logger.info("No suggested video cap. Not sending video.")
+            return
+
+        self.video_output_manager = MP4Demuxer(
+            url=video_url,
+            output_video_dimensions=(self.suggested_video_cap.width, self.suggested_video_cap.height),
+            on_video_sample=self.video_output_manager_on_video_sample,
+            on_audio_sample=self.video_output_manager_on_audio_sample,
+        )
+        self.video_output_manager.start()
         return
+
+    def video_output_manager_on_video_sample(self, pts, bytes_from_gstreamer):
+        if self.requested_leave or self.cleaned_up or (not self.suggested_video_cap):
+            self.video_output_manager.stop()
+            self.video_output_manager = None
+            return
+
+        self.send_video_frame_to_zoom(bytes_from_gstreamer, self.suggested_video_cap.width, self.suggested_video_cap.height)
+
+    def video_output_manager_on_audio_sample(self, pts, bytes_from_gstreamer):
+        if self.requested_leave or self.cleaned_up:
+            self.video_output_manager.stop()
+            self.video_output_manager = None
+            return
+
+        self.send_raw_audio(bytes_from_gstreamer, 8000)
 
     def get_staged_bot_join_delay_seconds(self):
         return 0
