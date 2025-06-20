@@ -278,6 +278,24 @@ class MetadataJSONField(serializers.JSONField):
     {
         "type": "object",
         "properties": {
+            "use_login": {
+                "type": "boolean",
+                "description": "Whether to use Teams bot login credentials to sign in before joining the meeting. Requires Teams bot login credentials to be set for the project.",
+                "default": False,
+            },
+        },
+        "required": [],
+        "additionalProperties": False,
+    }
+)
+class TeamsSettingsJSONField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "properties": {
             "silence_timeout_seconds": {
                 "type": "integer",
                 "description": "Number of seconds of continuous silence after which the bot should leave",
@@ -600,6 +618,41 @@ class CreateBotSerializer(serializers.Serializer):
         view = value.get("view")
         if view not in [RecordingViews.SPEAKER_VIEW, RecordingViews.GALLERY_VIEW, None]:
             raise serializers.ValidationError({"view": "View must be speaker_view or gallery_view"})
+
+        return value
+
+    teams_settings = TeamsSettingsJSONField(
+        help_text="The Microsoft Teams-specific settings for the bot.",
+        required=False,
+        default={"use_login": False},
+    )
+
+    TEAMS_SETTINGS_SCHEMA = {
+        "type": "object",
+        "properties": {
+            "use_login": {"type": "boolean"},
+        },
+        "required": [],
+        "additionalProperties": False,
+    }
+
+    def validate_teams_settings(self, value):
+        if value is None:
+            return value
+
+        # Define defaults
+        defaults = {"use_login": False}
+
+        try:
+            jsonschema.validate(instance=value, schema=self.TEAMS_SETTINGS_SCHEMA)
+        except jsonschema.exceptions.ValidationError as e:
+            raise serializers.ValidationError(e.message)
+
+        # If at least one attribute is provided, apply defaults for any missing attributes
+        if value:
+            for key, default_value in defaults.items():
+                if key not in value:
+                    value[key] = default_value
 
         return value
 

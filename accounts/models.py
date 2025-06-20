@@ -20,6 +20,9 @@ class Organization(models.Model):
     def credits(self):
         return self.centicredits / 100
 
+    def out_of_credits(self):
+        return self.credits() < -1
+
 
 class User(AbstractUser):
     organization = models.ForeignKey(Organization, on_delete=models.PROTECT, null=False, related_name="users")

@@ -18,6 +18,8 @@ class BotAdapter:
         READY_TO_SHOW_BOT_IMAGE = "Ready to show bot image"
         READY_TO_SEND_CHAT_MESSAGE = "Ready to send chat message"
         BLOCKED_BY_PLATFORM_REPEATEDLY = "Blocked by Platform repeatedly"
+        LOGIN_REQUIRED = "Login required"
+        LOGIN_ATTEMPT_FAILED = "Login attempt failed"
 
     class LEAVE_REASON:
         AUTO_LEAVE_SILENCE = "AUTO_LEAVE_SILENCE"

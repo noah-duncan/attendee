@@ -15,10 +15,12 @@ class TeamsBotAdapter(WebBotAdapter, TeamsUIMethods):
         self,
         *args,
         teams_closed_captions_language: str | None,
+        teams_bot_login_credentials: dict | None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.teams_closed_captions_language = teams_closed_captions_language
+        self.teams_bot_login_credentials = teams_bot_login_credentials
 
     def get_chromedriver_payload_file_name(self):
         return "teams_bot_adapter/teams_chromedriver_payload.js"

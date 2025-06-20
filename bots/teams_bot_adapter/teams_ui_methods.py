@@ -6,7 +6,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from bots.web_bot_adapter.ui_methods import UiCouldNotClickElementException, UiCouldNotJoinMeetingWaitingRoomTimeoutException, UiCouldNotLocateElementException, UiRequestToJoinDeniedException, UiRetryableExpectedException
+from bots.web_bot_adapter.ui_methods import UiCouldNotClickElementException, UiCouldNotJoinMeetingWaitingRoomTimeoutException, UiCouldNotLocateElementException, UiLoginAttemptFailedException, UiLoginRequiredException, UiRequestToJoinDeniedException, UiRetryableExpectedException
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ class TeamsUIMethods:
         try:
             element.click()
         except Exception as e:
-            logger.info(f"Error occurred when clicking element {step}, will retry")
+            logger.info(f"Error occurred when clicking element {step}, will retry. Error: {e}")
             raise UiCouldNotClickElementException("Error occurred when clicking element", step, e)
 
     def look_for_waiting_to_be_admitted_element(self, step):
@@ -55,16 +55,23 @@ class TeamsUIMethods:
 
     def turn_off_media_inputs(self):
         logger.info("Waiting for the microphone button...")
-        microphone_button = self.locate_element(step="turn_off_microphone_button", condition=EC.presence_of_element_located((By.CSS_SELECTOR, '[data-tid="toggle-mute"]')), wait_time_seconds=6)
+        microphone_button = self.locate_element(step="turn_off_microphone_button", condition=EC.presence_of_element_located((By.CSS_SELECTOR, '[data-tid="toggle-mute"]')), wait_time_seconds=60)
         logger.info("Clicking the microphone button...")
         self.click_element(microphone_button, "turn_off_microphone_button")
 
         logger.info("Waiting for the camera button...")
         camera_button = self.locate_element(step="turn_off_camera_button", condition=EC.presence_of_element_located((By.CSS_SELECTOR, '[data-tid="toggle-video"]')), wait_time_seconds=6)
         logger.info("Clicking the camera button...")
-        self.click_element(camera_button, "turn_off_camera_button")
+        # if the aria-checked attribute of the element is true, then click the element
+        if camera_button.get_attribute("aria-checked") == "true":
+            self.click_element(camera_button, "turn_off_camera_button")
+        else:
+            logger.info("Camera button is already off, not clicking it")
 
     def fill_out_name_input(self):
+        if self.teams_bot_login_credentials:
+            return
+
         num_attempts = 30
         logger.info("Waiting for the name input field...")
         for attempt_index in range(num_attempts):
@@ -138,6 +145,7 @@ class TeamsUIMethods:
                 self.click_element(show_more_button, "click_show_more_button")
                 return
             except TimeoutException:
+                self.look_for_sign_in_required_element("click_show_more_button")
                 self.look_for_denied_your_request_element("click_show_more_button")
                 self.look_for_we_could_not_connect_you_element("click_show_more_button")
 
@@ -146,6 +154,12 @@ class TeamsUIMethods:
             except Exception as e:
                 logger.info("Exception raised in locate_element for show_more_button")
                 raise UiCouldNotLocateElementException("Exception raised in locate_element for click_show_more_button", "click_show_more_button", e)
+
+    def look_for_sign_in_required_element(self, step):
+        sign_in_required_element = self.find_element_by_selector(By.XPATH, '//*[contains(text(), "We need to verify your info before you can join")]')
+        if sign_in_required_element:
+            logger.info("Sign in required. Raising UiLoginRequiredException")
+            raise UiLoginRequiredException("Sign in required", step)
 
     def look_for_we_could_not_connect_you_element(self, step):
         we_could_not_connect_you_element = self.find_element_by_selector(By.XPATH, '//*[contains(text(), "we couldn\'t connect you")]')
@@ -180,6 +194,9 @@ class TeamsUIMethods:
 
     # Returns nothing if succeeded, raises an exception if failed
     def attempt_to_join_meeting(self):
+        if self.teams_bot_login_credentials:
+            self.login_to_microsoft_account()
+
         self.driver.get(self.meeting_url)
 
         self.driver.execute_cdp_cmd(
@@ -234,3 +251,55 @@ class TeamsUIMethods:
         cancel_button = self.locate_element(step="cancel_button", condition=EC.presence_of_element_located((By.CSS_SELECTOR, '[data-tid="prejoin-cancel-button"]')), wait_time_seconds=10)
         logger.info("Clicking the cancel button...")
         self.click_element(cancel_button, "cancel_button")
+
+    def login_to_microsoft_account(self):
+        logger.info("Navigate to login screen")
+        self.driver.get("https://www.office.com/login")
+
+        logger.info("Waiting for the username input...")
+        username_input = self.locate_element(step="username_input", condition=EC.presence_of_element_located((By.CSS_SELECTOR, 'input[name="loginfmt"]')), wait_time_seconds=10)
+        logger.info("Filling in the username...")
+        username_input.send_keys(self.teams_bot_login_credentials["username"])
+
+        time.sleep(1)
+
+        logger.info("Looking for next button...")
+        next_button = self.locate_element(step="next_button", condition=EC.element_to_be_clickable((By.CSS_SELECTOR, 'input[type="submit"]')), wait_time_seconds=10)
+        logger.info("Clicking the next button...")
+        self.click_element(next_button, "next_button")
+
+        time.sleep(1)
+
+        logger.info("Waiting for the password input...")
+        password_input = self.locate_element(step="password_input", condition=EC.presence_of_element_located((By.CSS_SELECTOR, 'input[name="passwd"]')), wait_time_seconds=10)
+        logger.info("Filling in the password...")
+        password_input.send_keys(self.teams_bot_login_credentials["password"])
+
+        time.sleep(1)
+
+        logger.info("Looking for sign in button...")
+        signin_button = self.locate_element(step="signin_button", condition=EC.element_to_be_clickable((By.CSS_SELECTOR, 'input[type="submit"]')), wait_time_seconds=10)
+        logger.info("Clicking the sign in button...")
+        # Get the current page url
+        url_before_signin = self.driver.current_url
+        self.click_element(signin_button, "signin_button")
+
+        logger.info("Login attempted, waiting for redirect...")
+        ## Wait until the url changes to something other than the login page or too much time has passed
+        start_waiting_at = time.time()
+        while self.driver.current_url == url_before_signin:
+            time.sleep(1)
+            if time.time() - start_waiting_at > 60:
+                logger.info("Login timed out, redirecting to meeting page")
+                # TODO Replace with error message for login failed
+                break
+
+        logger.info(f"Redirected to {self.driver.current_url}")
+
+        # If we see the incorrect password error, then we should raise an exception
+        incorrect_password_element = self.find_element_by_selector(By.XPATH, '//*[contains(text(), "Your account or password is incorrect")]')
+        if incorrect_password_element:
+            logger.info("Incorrect password. Raising UiLoginAttemptFailedException")
+            raise UiLoginAttemptFailedException("Incorrect password", "login_to_microsoft_account")
+
+        logger.info("Login completed, redirecting to meeting page")
