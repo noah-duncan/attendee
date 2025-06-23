@@ -126,18 +126,18 @@ See CONTRIBUTING.md for detailed instructions on how to contribute to Attendee.
 
 ## Roadmap
 
-- [x] Join and leave Zoom meetings
-- [x] Transcripts
-- [x] API Reference
-- [x] Audio input / output
-- [x] Video input / output
-- [x] Custom bot image 
-- [x] Google Meet support
-- [x] Speech support
-- [x] Automatically leave meetings
-- [x] Microsoft Teams support
-- [x] Webhooks for state changes
-- [x] Scheduled meetings
+- ✅ Join and leave Zoom meetings
+- ✅ Transcripts
+- ✅ API Reference
+- ✅ Audio input / output
+- ✅ Video input / output
+- ✅ Custom bot image 
+- ✅ Google Meet support
+- ✅ Speech support
+- ✅ Automatically leave meetings
+- ✅ Microsoft Teams support
+- ✅ Webhooks for state changes
+- ✅ Scheduled meetings
 - [ ] Attendee-Managed Calendar Integration
 - [ ] Audio input / output via websockets
 - [ ] [ZAK token](https://developers.zoom.us/docs/meeting-sdk/auth/#start-meetings-and-webinars-with-a-zoom-users-zak-token) and [Join token](https://developers.zoom.us/docs/api/meetings/#tag/meetings/GET/meetings/{meetingId}/jointoken/local_recording) support
