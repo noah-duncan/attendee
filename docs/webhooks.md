@@ -2,17 +2,92 @@
 
 Webhooks send your server real-time updates when something important happens in Attendee, so that you don't need to poll the API.
 
-Currently, webhooks are only supported for one type of event: when a bot changes its state. This can be used to alert your server when a bot joins a meeting, starts recording or when a recording is available.
+Webhooks support multiple event types including bot state changes, transcript updates, chat message updates, and participant events. These can be used to alert your server when a bot joins a meeting, starts recording, when a recording is available, when real-time content is updated, or when participants join or leave meetings.
 
-## Creating a Webhook
+Attendee supports two types of webhook subscriptions:
+- **Project-level webhooks**: Apply to all bots in a project (managed via UI)
+- **Bot-level webhooks**: Apply to specific bots only (managed via API)
 
-To create a webhook:
+## Creating Project-Level Webhooks
+
+To create a project-level webhook via the UI:
 
 1. Click on "Settings → Webhooks" in the sidebar
 2. Click "Create Webhook" 
 3. Provide an HTTPS URL that will receive webhook events
 4. Select the triggers you want to receive notifications for (we currently have four triggers: `bot.state_change`, `transcript.update`, `chat_messages.update` and `participant_events.join_leave`)
 5. Click "Create" to save your subscription
+
+## Creating Bot-Level Webhooks
+
+Bot-level webhooks are created via API when creating a bot. Include a `webhooks` field in your bot creation request:
+
+```json
+{
+  "meeting_url": "https://zoom.us/j/123456789",
+  "bot_name": "My Bot with Webhooks",
+  "webhooks": [
+    {
+      "url": "https://my-app.com/bot-webhook",
+      "triggers": ["bot.state_change", "transcript.update"]
+    },
+    {
+      "url": "https://backup-webhook.com/events",
+      "triggers": ["bot.state_change", "chat_messages.update"]
+    }
+  ]
+}
+```
+
+### Bot-Level Webhook Fields
+
+- `url` (required): HTTPS URL to receive webhook events
+- `triggers` (required): Array of webhook trigger strings: `["bot.state_change", "transcript.update", "chat_messages.update"]`
+
+### Available Webhook Triggers
+
+| Trigger | Description |
+|---------|-------------|
+| `bot.state_change` | Bot changes state (joins, leaves, starts recording, etc.) |
+| `transcript.update` | Real-time transcript updates during meeting |
+| `chat_messages.update` | Chat message updates in the meeting |
+| `participant_events.join_leave` | Participant join and leave events in the meeting |
+
+## Webhook Delivery Priority
+
+When a bot has both project-level and bot-level webhooks configured:
+
+1. **Bot has bot-level webhooks** → Use bot-level webhooks exclusively
+2. **Bot has no bot-level webhooks** → Use project-level webhooks
+
+```
+
+## Webhook Limits and Validation
+
+### Limits
+- **Maximum**: 2 webhooks per project (combined project-level and bot-level)
+- **URL Format**: Must start with `https://`
+- **Uniqueness**: Same URL cannot be used multiple times for the same bot/project
+
+### Common Validation Errors
+
+```json
+{
+  "error": "webhook URL must start with https://"
+}
+
+{
+  "error": "URL already subscribed for this bot"
+}
+
+{
+  "error": "You have reached the maximum number of webhooks"
+}
+
+{
+  "error": "Invalid webhook trigger type: invalid.trigger"
+}
+```
 
 ## Webhook Payload
 
@@ -114,11 +189,24 @@ For webhooks triggered by `participant_events.join_leave`, the `data` field cont
 
 Go to the 'Bots' page and navigate to a Bot which was created after you created your webhook. You should see a 'Webhooks' tab on the page. Clicking it will show a list of all the webhook deliveries for that bot, whether they succeeded and the response from your server.
 
+## UI and Management
+
+### Project-Level Webhooks
+- **Managed via**: Attendee web UI (Settings → Webhooks)
+- **Visibility**: Shown in project webhook management pages
+- **Apply to**: All bots in the project (unless bot has specific webhooks)
+
+### Bot-Level Webhooks
+- **Managed via**: API only (during bot creation)
+- **Visibility**: Hidden from project webhook management UI
+- **Apply to**: Specific bot only
+
 ## Verifying Webhooks
 
 To ensure the webhook requests are coming from Attendee, we sign each request with a secret key. You can verify this signature to confirm the authenticity of the request.
 
-The signature is included in the `X-Webhook-Signature` header of each webhook request.
+- Each project has a single webhook secret used for both project and bot-level webhooks
+- The signature is included in the `X-Webhook-Signature` header of each webhook request
 
 ## Webhook Retry Policy
 

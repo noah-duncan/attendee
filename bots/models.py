@@ -1715,14 +1715,54 @@ class WebhookTriggerTypes(models.IntegerChoices):
     # add other event types here
 
     @classmethod
-    def trigger_type_to_api_code(cls, value):
-        mapping = {
+    def _get_mapping(cls):
+        """Get the trigger type to API code mapping"""
+        return {
             cls.BOT_STATE_CHANGE: "bot.state_change",
             cls.TRANSCRIPT_UPDATE: "transcript.update",
             cls.CHAT_MESSAGES_UPDATE: "chat_messages.update",
             cls.PARTICIPANT_EVENTS_JOIN_LEAVE: "participant_events.join_leave",
         }
-        return mapping.get(value)
+
+    @classmethod
+    def trigger_type_to_api_code(cls, value):
+        return cls._get_mapping().get(value)
+
+    @classmethod
+    def api_code_to_trigger_type(cls, api_code):
+        """Convert API code string to trigger type integer."""
+        mapping = cls._get_mapping()
+        api_code_to_trigger = {api_code: trigger_type.value for trigger_type, api_code in mapping.items()}
+        return api_code_to_trigger.get(api_code)
+
+    @classmethod
+    def normalize_triggers(cls, triggers):
+        """
+        Convert a list of trigger identifiers (API code strings or integers) to integers.
+        Supports both string API codes (for API usage) and integer values (for UI backward compatibility).
+        """
+        normalized = []
+        for trigger in triggers:
+            if isinstance(trigger, str):
+                # Convert string API code to integer
+                trigger_value = cls.api_code_to_trigger_type(trigger)
+                if trigger_value is not None:
+                    normalized.append(trigger_value)
+                else:
+                    # Return None to indicate invalid trigger
+                    return None
+            elif isinstance(trigger, int):
+                # Integer trigger value - validate it's a valid enum value
+                valid_values = [trigger_type.value for trigger_type in cls]
+                if trigger in valid_values:
+                    normalized.append(trigger)
+                else:
+                    # Return None to indicate invalid trigger
+                    return None
+            else:
+                # Unsupported type
+                return None
+        return normalized
 
 
 class WebhookSubscription(models.Model):
@@ -1730,6 +1770,7 @@ class WebhookSubscription(models.Model):
         return [WebhookTriggerTypes.BOT_STATE_CHANGE]
 
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="webhook_subscriptions")
+    bot = models.ForeignKey(Bot, on_delete=models.CASCADE, related_name="bot_webhook_subscriptions", null=True, blank=True)
 
     OBJECT_ID_PREFIX = "webhook_"
     object_id = models.CharField(max_length=32, unique=True, editable=False)

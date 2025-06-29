@@ -42,7 +42,7 @@
                     class="form-check-input trigger-checkbox" 
                     type="checkbox" 
                     name="triggers[]" 
-                    value="{{ option }}" 
+                    value="{{ option|map_trigger_types }}" 
                     id="trigger-{{ forloop.counter }}"
                   >
                   <label class="form-check-label" for="trigger-{{ forloop.counter }}">

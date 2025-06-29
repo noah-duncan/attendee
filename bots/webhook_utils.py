@@ -11,10 +11,23 @@ logger = logging.getLogger(__name__)
 def trigger_webhook(webhook_trigger_type, bot, payload):
     """
     Trigger a webhook for a given event.
+    Prioritizes bot-level webhook subscriptions over project-level ones.
     """
     from bots.models import WebhookDeliveryAttempt
 
-    subscriptions = bot.project.webhook_subscriptions.filter(triggers__contains=[webhook_trigger_type], is_active=True)
+    # First, check for bot-level webhook subscriptions
+    bot_subscriptions = bot.bot_webhook_subscriptions.filter(triggers__contains=[webhook_trigger_type], is_active=True)
+
+    # If bot has specific webhook subscriptions, use those exclusively
+    if bot_subscriptions.exists():
+        subscriptions = bot_subscriptions
+    else:
+        # Otherwise, fall back to project-level webhook subscriptions
+        subscriptions = bot.project.webhook_subscriptions.filter(
+            bot__isnull=True,  # Only project-level (not bot-specific)
+            triggers__contains=[webhook_trigger_type],
+            is_active=True,
+        )
 
     delivery_attempts = []
     for subscription in subscriptions:

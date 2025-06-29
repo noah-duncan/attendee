@@ -1,3 +1,4 @@
+{% load bot_filters %}
 <div class="modal-header">
   <h5 class="modal-title">Webhook Created</h5>
   <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -21,7 +22,7 @@
   </div>
   <div class="mb-3">
     <label class="form-label">Subscribed Triggers</label>
-    <input type="text" class="form-control" value="{{ triggers|join:", " }}"
+    <input type="text" class="form-control" value="{{ triggers|map_trigger_types|join:", " }}"
     readonly tabindex="-1" style="pointer-events: none" />
   </div>
   <div class="mb-3">
