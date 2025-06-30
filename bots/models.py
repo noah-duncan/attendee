@@ -344,6 +344,13 @@ class Bot(models.Model):
 
         return f"{destination_url}/{stream_key}"
 
+    def websocket_audio_url(self):
+        """Websocket URL is used to send/receive audio chunks to/from the bot"""
+        websocket_settings = self.settings.get("websocket_settings", {})
+        if websocket_settings is None:
+            return None
+        return websocket_settings.get("audio_url", None)
+
     def recording_format(self):
         recording_settings = self.settings.get("recording_settings", {})
         if recording_settings is None:
@@ -535,6 +542,20 @@ class BotEventTypes(models.IntegerChoices):
             cls.STAGED: "staged",
             cls.RECORDING_PAUSED: "recording_paused",
             cls.RECORDING_RESUMED: "recording_resumed",
+        }
+        return mapping.get(value)
+
+
+class RealtimeBotEventTypes(models.IntegerChoices):
+    MIXED_AUDIO_CHUNK = 101, "Mixed audio chunk"
+    BOT_OUTPUT_AUDIO_CHUNK = 102, "Bot output audio chunk"
+
+    @classmethod
+    def type_to_api_code(cls, value):
+        """Returns the API code for a given type value"""
+        mapping = {
+            cls.MIXED_AUDIO_CHUNK: "realtime_audio.mixed",
+            cls.BOT_OUTPUT_AUDIO_CHUNK: "realtime_audio.bot_output",
         }
         return mapping.get(value)
 

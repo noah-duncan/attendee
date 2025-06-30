@@ -30,6 +30,10 @@
           "type": "page"
         },
         {
+          "path": "docs/realtime_audio.md",
+          "type": "page"
+        },
+        {
           "path": "docs/faq.md",
           "type": "page"
         }

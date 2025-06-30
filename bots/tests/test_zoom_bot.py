@@ -1174,7 +1174,7 @@ class TestZoomBot(TransactionTestCase):
 
         # Create bot controller
         controller = BotController(self.bot.id)
-        controller.pipeline_configuration = PipelineConfiguration.voice_agent()
+        controller.pipeline_configuration = PipelineConfiguration.audio_recorder_bot_with_websocket_audio()
 
         # Run the bot in a separate thread since it has an event loop
         bot_thread = threading.Thread(target=controller.run)

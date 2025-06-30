@@ -5,6 +5,8 @@ services:
      - .:/attendee
     networks:
       - attendee_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - POSTGRES_HOST=postgres
       - REDIS_URL=redis://redis:6379/5

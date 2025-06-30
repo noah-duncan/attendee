@@ -1244,6 +1244,17 @@ components:
           required: []
           description: 'The transcription settings for the bot, e.g. {''deepgram'':
             {''language'': ''en''}}'
+        websocket_settings:
+          type: object
+          properties:
+            audio_url:
+              type: string
+              description: The URL of the websocket to use for receiving meeting audio
+                in real time and having the bot output audio in real time. It must
+                start with ws:// or wss://.
+          required: []
+          additionalProperties: false
+          description: 'The websocket settings for the bot, e.g. {''audio_url'': ''wss://example.com/audio''}'
         rtmp_settings:
           type: object
           properties:

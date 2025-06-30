@@ -400,6 +400,23 @@ class BotChatMessageRequestSerializer(serializers.Serializer):
         return value
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "properties": {
+            "audio_url": {
+                "type": "string",
+                "description": "The URL of the websocket to use for receiving meeting audio in real time and having the bot output audio in real time. It must start with ws:// or wss://.",
+            },
+        },
+        "required": [],
+        "additionalProperties": False,
+    }
+)
+class WebsocketSettingsJSONField(serializers.JSONField):
+    pass
+
+
 @extend_schema_serializer(
     examples=[
         OpenApiExample(
@@ -561,6 +578,37 @@ class CreateBotSerializer(serializers.Serializer):
 
         if value.get("deepgram", {}).get("callback") and value.get("deepgram", {}).get("detect_language"):
             raise serializers.ValidationError({"transcription_settings": "Language detection is not supported for streaming transcription. Please pass language='multi' instead of detect_language=true."})
+
+        return value
+
+    websocket_settings = WebsocketSettingsJSONField(help_text="The websocket settings for the bot, e.g. {'audio_url': 'wss://example.com/audio'}", required=False, default=None)
+
+    WEBSOCKET_SETTINGS_SCHEMA = {
+        "type": "object",
+        "properties": {
+            "audio_url": {
+                "type": "string",
+                "description": "The URL of the websocket to use for receiving meeting audio in real time and having the bot output audio in real time. It must start with ws:// or wss://. See https://docs.attendee.dev/guides/realtime-audio for details on how to receive and send audio through the websocket connection.",
+            },
+        },
+        "required": [],
+        "additionalProperties": False,
+    }
+
+    def validate_websocket_settings(self, value):
+        if value is None:
+            return value
+
+        try:
+            jsonschema.validate(instance=value, schema=self.WEBSOCKET_SETTINGS_SCHEMA)
+        except jsonschema.exceptions.ValidationError as e:
+            raise serializers.ValidationError(e.message)
+
+        # Validate websocket URL format if provided
+        audio_url = value.get("audio_url")
+        if audio_url:
+            if not (audio_url.lower().startswith("ws://") or audio_url.lower().startswith("wss://")):
+                raise serializers.ValidationError({"audio_url": "URL must start with ws:// or wss://"})
 
         return value
 

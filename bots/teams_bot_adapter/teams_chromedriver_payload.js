@@ -107,6 +107,11 @@ class StyleManager {
  
          this.mixedAudioTrack = destination.stream.getAudioTracks()[0];
 
+        // Process and send mixed audio if enabled
+        if (window.initialData.sendMixedAudio && this.mixedAudioTrack) {
+            this.processMixedAudioTrack();
+        }
+
         // Clear any existing interval
         if (this.silenceCheckInterval) {
             clearInterval(this.silenceCheckInterval);
@@ -125,6 +130,99 @@ class StyleManager {
         this.neededInteractionsInterval = setInterval(() => {
             this.checkNeededInteractions();
         }, 5000);
+    }
+
+    async processMixedAudioTrack() {
+        try {
+            // Create processor to get raw audio frames from the mixed audio track
+            const processor = new MediaStreamTrackProcessor({ track: this.mixedAudioTrack });
+            const generator = new MediaStreamTrackGenerator({ kind: 'audio' });
+            
+            // Get readable stream of audio frames
+            const readable = processor.readable;
+            const writable = generator.writable;
+
+            // Transform stream to intercept and send audio frames
+            const transformStream = new TransformStream({
+                async transform(frame, controller) {
+                    if (!frame) {
+                        return;
+                    }
+
+                    try {
+                        // Check if controller is still active
+                        if (controller.desiredSize === null) {
+                            frame.close();
+                            return;
+                        }
+
+                        // Copy the audio data
+                        const numChannels = frame.numberOfChannels;
+                        const numSamples = frame.numberOfFrames;
+                        const audioData = new Float32Array(numSamples);
+                        
+                        // Copy data from each channel
+                        // If multi-channel, average all channels together to create mono output
+                        if (numChannels > 1) {
+                            // Temporary buffer to hold each channel's data
+                            const channelData = new Float32Array(numSamples);
+                            
+                            // Sum all channels
+                            for (let channel = 0; channel < numChannels; channel++) {
+                                frame.copyTo(channelData, { planeIndex: channel });
+                                for (let i = 0; i < numSamples; i++) {
+                                    audioData[i] += channelData[i];
+                                }
+                            }
+                            
+                            // Average by dividing by number of channels
+                            for (let i = 0; i < numSamples; i++) {
+                                audioData[i] /= numChannels;
+                            }
+                        } else {
+                            // If already mono, just copy the data
+                            frame.copyTo(audioData, { planeIndex: 0 });
+                        }
+
+                        // Send mixed audio data via websocket
+                        const timestamp = performance.now();
+                        window.ws.sendMixedAudio(timestamp, audioData);
+                        
+                        // Pass through the original frame
+                        controller.enqueue(frame);
+                    } catch (error) {
+                        console.error('Error processing mixed audio frame:', error);
+                        frame.close();
+                    }
+                },
+                flush() {
+                    console.log('Mixed audio transform stream flush called');
+                }
+            });
+
+            // Create an abort controller for cleanup
+            const abortController = new AbortController();
+
+            try {
+                // Connect the streams
+                await readable
+                    .pipeThrough(transformStream)
+                    .pipeTo(writable, {
+                        signal: abortController.signal
+                    })
+                    .catch(error => {
+                        if (error.name !== 'AbortError') {
+                            console.error('Mixed audio pipeline error:', error);
+                        }
+                    });
+            } catch (error) {
+                console.error('Mixed audio stream pipeline error:', error);
+                abortController.abort();
+            }
+
+        } catch (error) {
+            console.error('Error setting up mixed audio processor:', error);
+        }
     }
  
     makeMainVideoFillFrame = function() {
@@ -1004,6 +1102,34 @@ class WebSocketClient {
             type: 'CaptionUpdate',
             caption: item
         });
+    }
+
+    sendMixedAudio(timestamp, audioData) {
+        if (this.ws.readyState !== originalWebSocket.OPEN) {
+            realConsole?.error('WebSocket is not connected for audio send', this.ws.readyState);
+            return;
+        }
+  
+        if (!this.mediaSendingEnabled) {
+          return;
+        }
+  
+        try {
+            // Create final message: type (4 bytes) + audio data
+            const message = new Uint8Array(4 + audioData.buffer.byteLength);
+            const dataView = new DataView(message.buffer);
+            
+            // Set message type (3 for AUDIO)
+            dataView.setInt32(0, WebSocketClient.MESSAGE_TYPES.AUDIO, true);
+            
+            // Copy audio data after type
+            message.set(new Uint8Array(audioData.buffer), 4);
+            
+            // Send the binary message
+            this.ws.send(message.buffer);
+        } catch (error) {
+            realConsole?.error('Error sending WebSocket audio message:', error);
+        }
     }
   
     sendAudio(timestamp, streamId, audioData) {

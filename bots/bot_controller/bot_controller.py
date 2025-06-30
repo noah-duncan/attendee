@@ -5,6 +5,7 @@ import signal
 import threading
 import time
 import traceback
+from base64 import b64decode
 from datetime import timedelta
 
 import gi
@@ -14,6 +15,7 @@ from django.utils import timezone
 
 from bots.automatic_leave_configuration import AutomaticLeaveConfiguration
 from bots.bot_adapter import BotAdapter
+from bots.bot_controller.bot_websocket_client import BotWebsocketClient
 from bots.bots_api_utils import BotCreationSource
 from bots.models import (
     Bot,
@@ -33,6 +35,7 @@ from bots.models import (
     MeetingTypes,
     Participant,
     ParticipantEvent,
+    RealtimeBotEventTypes,
     Recording,
     RecordingFormats,
     RecordingManager,
@@ -45,6 +48,7 @@ from bots.models import (
 from bots.utils import meeting_type_from_url
 from bots.webhook_payloads import chat_message_webhook_payload, participant_event_webhook_payload, utterance_webhook_payload
 from bots.webhook_utils import trigger_webhook
+from bots.websocket_payloads import mixed_audio_websocket_payload
 
 from .audio_output_manager import AudioOutputManager
 from .closed_caption_manager import ClosedCaptionManager
@@ -53,6 +57,7 @@ from .gstreamer_pipeline import GstreamerPipeline
 from .per_participant_non_streaming_audio_input_manager import PerParticipantNonStreamingAudioInputManager
 from .per_participant_streaming_audio_input_manager import PerParticipantStreamingAudioInputManager
 from .pipeline_configuration import PipelineConfiguration
+from .realtime_audio_output_manager import RealtimeAudioOutputManager
 from .rtmp_client import RTMPClient
 from .screen_and_audio_recorder import ScreenAndAudioRecorder
 from .video_output_manager import VideoOutputManager
@@ -88,7 +93,7 @@ class BotController:
             meeting_url=self.bot_in_db.meeting_url,
             add_video_frame_callback=None,
             wants_any_video_frames_callback=None,
-            add_mixed_audio_chunk_callback=None,
+            add_mixed_audio_chunk_callback=self.add_mixed_audio_chunk_callback if self.pipeline_configuration.websocket_stream_audio else None,
             upsert_caption_callback=self.closed_caption_manager.upsert_caption,
             upsert_chat_message_callback=self.on_new_chat_message,
             add_participant_event_callback=self.add_participant_event,
@@ -114,7 +119,7 @@ class BotController:
             meeting_url=self.bot_in_db.meeting_url,
             add_video_frame_callback=None,
             wants_any_video_frames_callback=None,
-            add_mixed_audio_chunk_callback=None,
+            add_mixed_audio_chunk_callback=self.add_mixed_audio_chunk_callback if self.pipeline_configuration.websocket_stream_audio else None,
             upsert_caption_callback=self.closed_caption_manager.upsert_caption,
             upsert_chat_message_callback=self.on_new_chat_message,
             add_participant_event_callback=self.add_participant_event,
@@ -144,7 +149,7 @@ class BotController:
 
         return ZoomBotAdapter(
             use_one_way_audio=self.pipeline_configuration.transcribe_audio,
-            use_mixed_audio=self.pipeline_configuration.record_audio or self.pipeline_configuration.rtmp_stream_audio,
+            use_mixed_audio=self.pipeline_configuration.record_audio or self.pipeline_configuration.rtmp_stream_audio or self.pipeline_configuration.websocket_stream_audio,
             use_video=self.pipeline_configuration.record_video or self.pipeline_configuration.rtmp_stream_video,
             display_name=self.bot_in_db.name,
             send_message_callback=self.on_message_from_adapter,
@@ -154,12 +159,31 @@ class BotController:
             meeting_url=self.bot_in_db.meeting_url,
             add_video_frame_callback=self.gstreamer_pipeline.on_new_video_frame,
             wants_any_video_frames_callback=self.gstreamer_pipeline.wants_any_video_frames,
-            add_mixed_audio_chunk_callback=self.gstreamer_pipeline.on_mixed_audio_raw_data_received_callback,
+            add_mixed_audio_chunk_callback=self.add_mixed_audio_chunk_callback,
             upsert_chat_message_callback=self.on_new_chat_message,
             add_participant_event_callback=self.add_participant_event,
             automatic_leave_configuration=self.automatic_leave_configuration,
             video_frame_size=self.bot_in_db.recording_dimensions(),
         )
+
+    def add_mixed_audio_chunk_callback(self, chunk: bytes):
+        if self.gstreamer_pipeline:
+            self.gstreamer_pipeline.on_mixed_audio_raw_data_received_callback(chunk)
+
+        if not self.websocket_audio_client:
+            return
+
+        if not self.websocket_audio_client.started():
+            logger.info("Starting websocket audio client...")
+            self.websocket_audio_client.start()
+
+        payload = mixed_audio_websocket_payload(
+            chunk=chunk,
+            sample_rate=self.mixed_audio_sample_rate(),
+            bot_object_id=self.bot_in_db.object_id,
+        )
+
+        self.websocket_audio_client.send_async(payload)
 
     def get_meeting_type(self):
         meeting_type = meeting_type_from_url(self.bot_in_db.meeting_url)
@@ -168,6 +192,15 @@ class BotController:
         return meeting_type
 
     def get_per_participant_audio_sample_rate(self):
+        meeting_type = self.get_meeting_type()
+        if meeting_type == MeetingTypes.ZOOM:
+            return 32000
+        elif meeting_type == MeetingTypes.GOOGLE_MEET:
+            return 48000
+        elif meeting_type == MeetingTypes.TEAMS:
+            return 48000
+
+    def mixed_audio_sample_rate(self):
         meeting_type = self.get_meeting_type()
         if meeting_type == MeetingTypes.ZOOM:
             return 32000
@@ -285,6 +318,14 @@ class BotController:
             logger.info("Telling media recorder receiver to cleanup...")
             self.screen_and_audio_recorder.cleanup()
 
+        if self.realtime_audio_output_manager:
+            logger.info("Telling realtime audio output manager to cleanup...")
+            self.realtime_audio_output_manager.cleanup()
+
+        if self.websocket_audio_client:
+            logger.info("Telling websocket audio client to cleanup...")
+            self.websocket_audio_client.cleanup()
+
         if self.get_recording_file_location():
             logger.info("Telling file uploader to upload recording file...")
             file_uploader = FileUploader(
@@ -337,13 +378,24 @@ class BotController:
 
         self.automatic_leave_configuration = AutomaticLeaveConfiguration(**self.bot_in_db.automatic_leave_settings())
 
+        self.pipeline_configuration = self.get_pipeline_configuration()
+
+    def get_pipeline_configuration(self):
+        # This is sloppy, we won't be able to rely on these predefined configurations forever, but it will be ok for now
+
         if self.bot_in_db.rtmp_destination_url():
-            self.pipeline_configuration = PipelineConfiguration.rtmp_streaming_bot()
-        else:
-            if self.bot_in_db.recording_type() == RecordingTypes.AUDIO_ONLY:
-                self.pipeline_configuration = PipelineConfiguration.audio_recorder_bot()
+            return PipelineConfiguration.rtmp_streaming_bot()
+
+        if self.bot_in_db.recording_type() == RecordingTypes.AUDIO_ONLY:
+            if self.bot_in_db.websocket_audio_url():
+                return PipelineConfiguration.audio_recorder_bot_with_websocket_audio()
             else:
-                self.pipeline_configuration = PipelineConfiguration.recorder_bot()
+                return PipelineConfiguration.audio_recorder_bot()
+
+        if self.bot_in_db.websocket_audio_url():
+            return PipelineConfiguration.recorder_bot_with_websocket_audio()
+
+        return PipelineConfiguration.recorder_bot()
 
     def get_gstreamer_sink_type(self):
         if self.pipeline_configuration.rtmp_stream_audio or self.pipeline_configuration.rtmp_stream_video:
@@ -378,6 +430,10 @@ class BotController:
             return False
         elif meeting_type == MeetingTypes.TEAMS:
             return False
+
+    def should_create_websocket_client(self):
+        print(f"should_create_websocket_client: {self.pipeline_configuration.websocket_stream_audio}")
+        return self.pipeline_configuration.websocket_stream_audio
 
     def should_create_screen_and_audio_recorder(self):
         return not self.should_create_gstreamer_pipeline()
@@ -466,12 +522,25 @@ class BotController:
                 audio_only=not (self.pipeline_configuration.record_video or self.pipeline_configuration.rtmp_stream_video),
             )
 
+        self.websocket_audio_client = None
+        if self.should_create_websocket_client():
+            self.websocket_audio_client = BotWebsocketClient(
+                url=self.bot_in_db.websocket_audio_url(),
+                on_message_callback=self.on_message_from_websocket_audio,
+            )
+
         self.adapter = self.get_bot_adapter()
 
         self.audio_output_manager = AudioOutputManager(
             currently_playing_audio_media_request_finished_callback=self.currently_playing_audio_media_request_finished,
             play_raw_audio_callback=self.adapter.send_raw_audio,
             sleep_time_between_chunks_seconds=self.get_sleep_time_between_audio_output_chunks_seconds(),
+        )
+
+        self.realtime_audio_output_manager = RealtimeAudioOutputManager(
+            play_raw_audio_callback=self.adapter.send_raw_audio,
+            sleep_time_between_chunks_seconds=self.get_sleep_time_between_audio_output_chunks_seconds(),
+            output_sample_rate=self.mixed_audio_sample_rate(),
         )
 
         self.video_output_manager = VideoOutputManager(
@@ -961,6 +1030,29 @@ class BotController:
             with open(BotAdapter.DEBUG_RECORDING_FILE_PATH, "rb") as f:
                 debug_screenshot.file.save(f"debug_screen_recording_{debug_screenshot.object_id}.mp4", f, save=True)
             logger.info(f"Saved debug recording with ID {debug_screenshot.object_id}")
+
+    def on_message_from_websocket_audio(self, message_json: str):
+        try:
+            message = json.loads(message_json)
+            if message["event_type"] == RealtimeBotEventTypes.type_to_api_code(RealtimeBotEventTypes.BOT_OUTPUT_AUDIO_CHUNK):
+                chunk = b64decode(message["event_data"]["chunk"])
+                sample_rate = message["event_data"]["sample_rate"]
+                self.realtime_audio_output_manager.add_chunk(chunk, sample_rate)
+            else:
+                if not hasattr(self, "websocket_audio_error_ticker"):
+                    self.websocket_audio_error_ticker = 0
+
+                if self.websocket_audio_error_ticker % 1000 == 0:
+                    logger.error("Received unknown message from websocket: %s", message)
+                self.websocket_audio_error_ticker += 1
+        except Exception as e:
+            # Set the ticker to zero if its not an attribute
+            if not hasattr(self, "websocket_audio_error_ticker"):
+                self.websocket_audio_error_ticker = 0
+
+            if self.websocket_audio_error_ticker % 1000 == 0:
+                logger.error(f"Error processing message from websocket: {e}")
+            self.websocket_audio_error_ticker += 1
 
     def take_action_based_on_message_from_adapter(self, message):
         if message.get("message") == BotAdapter.Messages.REQUEST_TO_JOIN_DENIED:

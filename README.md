@@ -138,8 +138,8 @@ See CONTRIBUTING.md for detailed instructions on how to contribute to Attendee.
 - [x] Microsoft Teams support
 - [x] Webhooks for state changes
 - [x] Scheduled meetings
+- [x] Audio input / output via websockets
 - [ ] Attendee-Managed Calendar Integration
-- [ ] Audio input / output via websockets
 - [ ] [ZAK token](https://developers.zoom.us/docs/meeting-sdk/auth/#start-meetings-and-webinars-with-a-zoom-users-zak-token) and [Join token](https://developers.zoom.us/docs/api/meetings/#tag/meetings/GET/meetings/{meetingId}/jointoken/local_recording) support
 
 Have suggestions for the roadmap? Join the [Slack Community](https://join.slack.com/t/attendeecommu-rff8300/shared_invite/zt-2uhpam6p2-ZzLAoVrljbL2UEjqdSHrgQ) or open an issue.

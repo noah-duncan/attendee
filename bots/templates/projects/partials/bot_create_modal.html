@@ -144,10 +144,10 @@
                     `  --request POST \\`,
                     `  --header 'Authorization: Token YOUR_API_KEY_HERE' \\`,
                     `  --header 'Content-Type: application/json' \\`,
-                    `  --data '{`,
-                    `    "meeting_url": "${meetingUrl}",`,
-                    `    "bot_name": "${botName}"`,
-                    `  }'`
+                    `  --data '{
+                            "meeting_url": "${meetingUrl}",
+                            "bot_name": "${botName}"
+                        }'`
                 ];
                 
                 const curlCommand = lines.join('\n');

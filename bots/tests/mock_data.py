@@ -56,6 +56,12 @@ class MockPCMAudioFrame:
     def GetBuffer(self):
         return self.buffer
 
+    def GetSampleRate(self):
+        return 32000
+
+    def GetChannelNum(self):
+        return 1
+
 
 class MockF32AudioFrame:
     def __init__(self):
